@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-store';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { AuthFooter } from '@/components/auth-footer';
 import { LandingBackground } from '@/components/landing-background';
 import { cn } from '@/lib/utils';
 
-export default function AuthPage() {
+function AuthContent() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -175,5 +175,17 @@ export default function AuthPage() {
 
       <AuthFooter />
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-6">
+        <div className="Netflix-spinner" />
+      </div>
+    }>
+      <AuthContent />
+    </Suspense>
   );
 }
