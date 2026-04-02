@@ -31,6 +31,7 @@ export default function ManageProfilesPage() {
                   alt={profile.name} 
                   fill 
                   className="object-cover opacity-70 group-hover:opacity-40"
+                  unoptimized={true}
                 />
                 {/* Pencil Overlay - Matches Netflix authentic Manage Profiles UI */}
                 <div className="absolute inset-0 flex items-center justify-center">

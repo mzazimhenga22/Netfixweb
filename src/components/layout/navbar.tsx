@@ -210,7 +210,12 @@ export function Navbar() {
                           onClick={() => router.push(`/browse?watch=${item.id}`)}
                         >
                            <div className="relative w-24 aspect-video rounded-sm overflow-hidden flex-shrink-0">
-                              <Image src={item.heroImage} alt={item.title} fill className="object-cover" />
+                              <Image 
+                                 src={item.heroImage} 
+                                 alt={item.title} 
+                                 fill 
+                                 className="object-cover" 
+                               />
                            </div>
                            <div className="flex-1 min-w-0">
                               <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-0.5">Recently Added</p>
@@ -235,22 +240,24 @@ export function Navbar() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-sm overflow-hidden h-8 w-8 p-0 flex items-center justify-center hover:bg-transparent group">
                 <Image
-                  src={AVATAR_MAP[selectedProfile?.avatar || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
+                  src={AVATAR_MAP[selectedProfile?.avatarId || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
                   alt="Profile"
                   width={32}
                   height={32}
                   className="object-cover rounded-sm transition-transform group-hover:scale-105"
+                  unoptimized
                 />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-black/95 border-white/10 text-white min-w-[220px] p-2 shadow-2xl mt-2 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="px-3 py-4 flex items-center gap-3">
                 <Image
-                  src={AVATAR_MAP[selectedProfile?.avatar || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
+                  src={AVATAR_MAP[selectedProfile?.avatarId || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
                   alt="Profile"
                   width={32}
                   height={32}
                   className="rounded-sm shadow-md"
+                  unoptimized
                 />
                 <span className="font-bold text-sm tracking-tight">{selectedProfile?.name || user?.name || 'User'}</span>
               </div>

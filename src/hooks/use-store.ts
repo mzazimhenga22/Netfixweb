@@ -16,11 +16,11 @@ export interface Profile {
 }
 
 export const AVATAR_MAP: Record<string, string> = {
-  avatar1: 'https://occ-0-1168-299.1.nflxso.net/dnm/api/v6/K6hjPJX6vEEqc728maVVEYfPIM8/AAAABXvC4L6yL2oG8B5Z8ZzVwK9C-uYxM2Y8Q7MxFj7z7_-fP9x-W1o9G3A-yXvB8G8f8G8f8G8f8G8f8G8f8G8.png?r=fcc',
-  avatar2: 'https://occ-0-1168-299.1.nflxso.net/dnm/api/v6/K6hjPJX6vEEqc728maVVEYfPIM8/AAAABY5u0tAL_y8FpY4tq0026H4E9X6-y9f8-W1o9G3A-yXvB8G8f8G8f8G8f8G8f8G8f8G8f8G8.png?r=f98',
-  avatar3: 'https://occ-0-1168-299.1.nflxso.net/dnm/api/v6/K6hjPJX6vEEqc728maVVEYfPIM8/AAAABZnB6xY8zVv-P0R6m8-q9f8-W1o9G3A-yXvB8G8f8G8f8G8f8G8f8G8f8G8f8G8f8G8.png?r=b97',
-  avatar4: 'https://occ-0-1168-299.1.nflxso.net/dnm/api/v6/K6hjPJX6vEEqc728maVVEYfPIM8/AAAABd-p0R-q9f8-W1o9G3A-yXvB8G8f8G8f8G8f8G8f8G8f8G8f8G8f8G8f8G8.png?r=a7b',
-  avatar5: 'https://occ-0-1168-299.1.nflxso.net/dnm/api/v6/K6hjPJX6vEEqc728maVVEYfPIM8/AAAABXZ-y-Xw8Z-y-p9f8-W1o9G3A-yXvB8G8f8G8f8G8f8G8f8G8f8G8f8G8f8G8f8G8.png?r=b97',
+  avatar1: '/assets/avatars/avatar1.png',
+  avatar2: '/assets/avatars/avatar2.png',
+  avatar3: '/assets/avatars/avatar3.png',
+  avatar4: '/assets/avatars/avatar4.png',
+  avatar5: '/assets/avatars/avatar5.png',
   avatar6: '/assets/avatars/avatar6.png',
   avatar7: '/assets/avatars/avatar7.png',
   avatar8: '/assets/avatars/avatar8.png',

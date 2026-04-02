@@ -72,6 +72,7 @@ export default function ProfilesPage() {
                   alt={profile.name} 
                   fill 
                   className="object-cover"
+                  unoptimized={true}
                 />
                 {profile.isLocked && (
                   <div className="absolute bottom-1 right-1 bg-black/60 p-1 rounded-full">
