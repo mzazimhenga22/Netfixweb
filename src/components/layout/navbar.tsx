@@ -90,6 +90,7 @@ export function Navbar() {
             height={32}
             className="h-full w-auto object-contain brightness-110"
             priority
+            unoptimized
           />
         </Link>
 

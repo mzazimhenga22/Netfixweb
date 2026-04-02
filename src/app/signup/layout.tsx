@@ -13,6 +13,7 @@ export default function SignupLayout({ children }: { children: React.ReactNode }
               fill
               className="object-contain object-left"
               priority
+              unoptimized
             />
           </div>
         </Link>

@@ -66,6 +66,7 @@ function AuthContent() {
               fill 
               className="object-contain object-left"
               priority
+              unoptimized
             />
           </div>
         </Link>

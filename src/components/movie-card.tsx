@@ -57,6 +57,7 @@ export function MovieCard({ content, aspectRatio = 'landscape', onPlay }: MovieC
             alt="N" 
             fill 
             className="object-contain"
+            unoptimized
           />
         </div>
 
@@ -107,6 +108,7 @@ export function MovieCard({ content, aspectRatio = 'landscape', onPlay }: MovieC
               type={content.type === 'tv-show' ? 'tv' : 'movie'}
               delay={800} // Wait 0.8s on hover before resolving stream
               clipDuration={30}
+              isMuted={true}
             />
           )}
           <div className="absolute bottom-2 left-4 z-10 pointer-events-none">

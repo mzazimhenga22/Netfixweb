@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 25; // Netlify serverless timeout (seconds)
+
 /**
  * Catch-all proxy for VidLink assets (scripts, WASM, CSS, API calls).
  * 

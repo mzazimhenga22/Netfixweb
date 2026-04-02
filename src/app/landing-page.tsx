@@ -68,6 +68,7 @@ export function LandingPage() {
             height={32}
             className="h-full w-auto object-contain brightness-110"
             priority
+            unoptimized
           />
         </Link>
            <Link href={user ? "/browse" : "/auth"}>
