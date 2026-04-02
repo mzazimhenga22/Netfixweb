@@ -74,9 +74,14 @@ export function HeroVideoPreview({
       const hls = new Hls({
         startLevel: 0, // Start with LOWEST quality
         capLevelToPlayerSize: false,
-        maxBufferLength: 15, // Only buffer 15 seconds ahead
+        maxBufferLength: 15,
         maxMaxBufferLength: 30,
         maxBufferSize: 10 * 1024 * 1024, // 10MB max buffer
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 3,
+        manifestLoadingMaxRetry: 3,
       });
 
       hls.loadSource(stream.url);

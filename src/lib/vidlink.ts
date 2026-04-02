@@ -77,6 +77,10 @@ export function parseVidLinkResponse(data: any): VidLinkStream | null {
 
     console.log(`[VidLink] Playlist URL: ${playlistUrl.substring(0, 120)}...`);
 
+    // Route the m3u8 through our HLS proxy to bypass CORS
+    // The proxy also forwards embedded headers (referer, origin) from the URL
+    playlistUrl = `/api/vidlink/hls?url=${encodeURIComponent(playlistUrl)}`;
+
     // Build response headers
     const responseHeaders: Record<string, string> = {};
     if (stream.headers && typeof stream.headers === 'object') {

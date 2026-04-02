@@ -136,6 +136,16 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         capLevelToPlayerSize: true,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
+        maxBufferHole: 0.5,
+        lowLatencyMode: false,
+        // Start playing as soon as we have a tiny bit buffered
+        highBufferWatchdogPeriod: 2,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingMaxRetry: 3,
       });
 
       hls.loadSource(stream.url);
