@@ -82,14 +82,13 @@ export function Navbar() {
       isScrolled ? "bg-[#141414] shadow-md" : "bg-gradient-to-b from-black/70 via-black/40 to-transparent"
     )}>
       <div className="flex items-center gap-4 md:gap-10 w-full max-w-[1920px] mx-auto">
-        {/* Logo */}
-        <Link href="/browse" className="relative flex items-center h-6 sm:h-8 transition-transform active:scale-95 duration-200">
+        <Link href="/browse" className="relative flex items-center h-8 sm:h-12 transition-transform active:scale-95 duration-200">
           <Image
-            src="/netflix-logo.png"
+            src="/netflix-n-logo.svg"
             alt="Netflix"
-            width={120}
-            height={32}
-            className="h-full w-auto object-contain brightness-110"
+            width={45}
+            height={60}
+            className="h-10 md:h-14 w-auto object-contain brightness-110 cursor-pointer drop-shadow-[0_0_10px_rgba(229,9,20,0.5)]"
             priority
           />
         </Link>

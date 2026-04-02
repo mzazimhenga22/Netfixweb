@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,15 +57,16 @@ function AuthContent() {
         <LandingBackground />
       </div>
 
-      {/* Header Logo */}
       <header className="relative z-10 w-full px-6 py-6 md:px-12 md:py-8 lg:px-44">
-        <Image
-          src="/netflix-logo.png"
-          alt="Netflix"
-          width={160}
-          height={45}
-          className="h-8 md:h-11 w-auto object-contain brightness-110"
-        />
+        <Link href="/">
+          <Image
+            src="/netflix-n-logo.svg"
+            alt="Netflix"
+            width={45}
+            height={60}
+            className="h-10 md:h-14 w-auto object-contain brightness-110 cursor-pointer drop-shadow-[0_0_10px_rgba(229,9,20,0.5)]"
+          />
+        </Link>
       </header>
 
       {/* Main Login Content */}
