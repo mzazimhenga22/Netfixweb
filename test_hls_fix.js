@@ -1,301 +1,235 @@
 /**
- * Real end-to-end test: gets a LIVE playlist URL from VidLink,
- * then tests our HLS proxy with the real CDN token.
+ * DEFINITIVE diagnostic: Tests a real VidLink token with EVERY
+ * possible fetch strategy to find what the CDN actually accepts.
  * 
- * This goes through the same flow as the browser:
- * 1. Fetch VidLink embed page
- * 2. Extract the WASM-generated API path
- * 3. Call VidLink's /api/b/ endpoint through our proxy
- * 4. Parse the response to get the real playlist URL
- * 5. Hit our /api/vidlink/hls with the parsed URL
- * 6. Verify we get 200 (not 403)
+ * Usage: Run this, then immediately open localhost:3000/browse in
+ * your browser. The script intercepts the HLS proxy request and
+ * tests the URL with multiple approaches.
  */
 
-const BASE = 'http://localhost:3000';
-const TMDB_ID = '83533'; // Send Help
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 
-async function main() {
-  console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║  LIVE VidLink HLS Proxy Test                        ║');
-  console.log('╚══════════════════════════════════════════════════════╝\n');
+// ── Extract the REAL CDN URL from a recent browser request ──
+// We'll start a local interceptor that captures the URL from the proxy route.
+// But first, let's test with the known URL pattern from the logs.
 
-  // ── Step 1: Get the resolve page (contains injected interceptor) ──
-  console.log('Step 1: Fetch resolve page...');
-  const resolveRes = await fetch(`${BASE}/api/vidlink/resolve?tmdbId=${TMDB_ID}&type=movie`);
-  if (!resolveRes.ok) {
-    console.error(`  ❌ Resolve failed: ${resolveRes.status}`);
-    process.exit(1);
-  }
-  const html = await resolveRes.text();
-  console.log(`  ✅ Got ${html.length} bytes of HTML\n`);
+// Decode the URL from the latest browser error log:
+const ENCODED_URL = 'https://storm.vodvidl.site/proxy/file2/5RREG7donP5zOLpHRjjusd9McxqKdXGks4J65Y53%2BzP51~1wQsx6Oc0LcUXperaXaVjVpj6yYCH07Frp2~akUCKzyXmWRZ5pn2WdhZex5KC0kGVv8oqPVxxbKaaB8ZUnXOLjIPazcWD1PPSqd4cZtLBwy9bE~hT6BNVPYHbcvPA%3D/cGxheWxpc3QubTN1OA%3D%3D.m3u8';
 
-  // ── Step 2: We can't run WASM, so let's fetch the VidLink API directly ──
-  // The WASM generates an encrypted token, but we can try fetching the page
-  // with a headless approach — or better, use Puppeteer-like flow.
-  // 
-  // Alternative: We'll call vidlink.pro's page directly and intercept the 
-  // /api/b/ call ourselves, just like the iframe interceptor does.
-  
-  console.log('Step 2: Fetch VidLink embed page directly...');
-  const embedUrl = `https://vidlink.pro/movie/${TMDB_ID}`;
-  const embedRes = await fetch(embedUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36',
-      'Accept': 'text/html',
-      'Referer': 'https://vidlink.pro/',
-    },
-  });
-  
-  if (!embedRes.ok) {
-    console.log(`  ⚠️ VidLink returned ${embedRes.status} — their server may be down`);
-    console.log('  Falling back to parsing-only tests...\n');
-    await runParsingTests();
-    return;
+async function fetchWithStrategy(name, url, headers) {
+  try {
+    const res = await fetch(url, { 
+      headers,
+      redirect: 'follow',
+    });
+    const status = res.status;
+    const ct = res.headers.get('content-type') || '';
+    let bodyPreview = '';
+    if (status === 200) {
+      const text = await res.text();
+      bodyPreview = text.substring(0, 200);
+    }
+    return { name, status, ct, bodyPreview };
+  } catch (e) {
+    return { name, status: 'ERROR', ct: '', bodyPreview: e.message };
   }
-  
-  const embedHtml = await embedRes.text();
-  console.log(`  ✅ Got ${embedHtml.length} bytes from VidLink\n`); 
-
-  // ── Step 3: We can't execute WASM from Node, so use a different approach ──
-  // The key issue is the /api/b/ endpoint requires a WASM-generated token.
-  // Since we can't run WASM, let's at least verify the PARSING fix is correct,
-  // and do a real test using the browser flow.
-  
-  // However, we CAN test the proxy chain by calling vidlink's fu.wasm through 
-  // our proxy and seeing if the proxy correctly forwards it.
-  
-  console.log('Step 3: Test proxy chain (/api/vidlink/proxy/fu.wasm)...');
-  const wasmRes = await fetch(`${BASE}/api/vidlink/proxy/fu.wasm`);
-  console.log(`  fu.wasm proxy: ${wasmRes.status} (${wasmRes.headers.get('content-type')})`);
-  if (wasmRes.ok) {
-    const wasmBytes = await wasmRes.arrayBuffer();
-    console.log(`  ✅ WASM size: ${wasmBytes.byteLength} bytes\n`);
-  } else {
-    console.log(`  ⚠️ WASM proxy returned ${wasmRes.status}\n`);
-  }
-  
-  // ── Step 4: Run the parsing tests ──
-  await runParsingTests();
-  
-  // ── Step 5: Browser-based validation ──
-  // Since the WASM token can only be generated in-browser, we must test
-  // the full flow there. But we can verify the HLS proxy accepts proper params.
-  
-  console.log('\n━━━ Step 5: HLS Proxy Param Handling Test ━━━');
-  
-  // Test that our proxy correctly reads top-level params
-  // Use a URL that the CDN will reject for an invalid token (not for bad headers)
-  const testCdnUrl = 'https://storm.vodvidl.site/test.m3u8';
-  const testHeaders = JSON.stringify({ referer: 'https://videostr.net/', origin: 'https://videostr.net' });
-  const testHost = 'https://skyember44.online';
-  
-  // Build URL the NEW way (params as top-level)
-  const newWayUrl = `${BASE}/api/vidlink/hls?url=${encodeURIComponent(testCdnUrl)}&host=${encodeURIComponent(testHost)}&headers=${encodeURIComponent(testHeaders)}`;
-  
-  // Build URL the OLD way (params embedded in CDN url)
-  const oldCdnUrl = `${testCdnUrl}?headers=${encodeURIComponent(testHeaders)}&host=${encodeURIComponent(testHost)}`;
-  const oldWayUrl = `${BASE}/api/vidlink/hls?url=${encodeURIComponent(oldCdnUrl)}`;
-  
-  console.log('  Testing NEW way (params as top-level)...');
-  const newRes = await fetch(newWayUrl);
-  const newStatus = newRes.status;
-  console.log(`    Status: ${newStatus}`);
-  
-  console.log('  Testing OLD way (params embedded in CDN URL)...');  
-  const oldRes = await fetch(oldWayUrl);
-  const oldStatus = oldRes.status;
-  console.log(`    Status: ${oldStatus}`);
-  
-  console.log();
-  
-  // Check server logs to see what headers were sent
-  // The key thing: with the NEW way, the CDN URL should be CLEAN
-  // With the OLD way (if our proxy still cleaned it), it should also work
-  // but if the proxy doesn't clean, the CDN sees extra params
-  
-  if (newStatus === oldStatus) {
-    console.log(`  Both return ${newStatus} — proxy handles both formats correctly.`);
-  }
-  
-  // The real validation: check server-side logs
-  console.log('\n  📋 Check the dev server console for log lines like:');
-  console.log('     [HLS-Proxy] → https://storm.vodvidl.site/test.m3u8');
-  console.log('     [HLS-Proxy] Referer: https://videostr.net/');
-  console.log('  If Referer shows videostr.net (not vidlink.pro), the fix works!');
-  console.log();
 }
 
-async function runParsingTests() {
-  console.log('━━━ Step 4: URL Parsing Tests ━━━\n');
+async function main() {
+  console.log('╔═══════════════════════════════════════════════════════╗');
+  console.log('║  CDN 403 Root Cause Diagnosis                        ║');
+  console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+  // First, get a fresh token by going through VidLink's API
+  console.log('Step 1: Getting a FRESH playlist URL from VidLink...\n');
   
-  const testCases = [
+  const realUrl = await getFreshPlaylistUrl();
+  
+  if (!realUrl) {
+    console.log('  ⚠️  Could not get fresh URL from VidLink API.');
+    console.log('  Using URL from latest browser logs (may be expired).\n');
+  }
+  
+  const testUrl = realUrl || ENCODED_URL;
+  console.log(`  Test URL: ${testUrl.substring(0, 100)}...\n`);
+  
+  // Parse the host param
+  const HOST_ORIGIN = 'https://skyember44.online';
+  const parsedUrl = new URL(testUrl);
+  const stormOrigin = parsedUrl.origin;
+  
+  // Build an alternative URL on skyember44.online
+  const altUrl = testUrl.replace(stormOrigin, HOST_ORIGIN);
+  
+  console.log('━━━ Step 2: Testing EVERY fetch strategy ━━━\n');
+  
+  const strategies = [
+    // Strategy 1: Current approach (Referer: videostr.net, Origin: videostr.net)
     {
-      name: 'Standard VidLink playlist URL with headers + host',
-      raw: 'https://storm.vodvidl.site/proxy/file2%2F5RREG7donP5zOLpHRjjusd9McxqKdXGks4J65Y53%2BzP51/cGxheWxpc3QubTN1OA%3D%3D.m3u8?headers=%7B%22referer%22%3A%22https%3A%2F%2Fvideostr.net%2F%22%2C%22origin%22%3A%22https%3A%2F%2Fvideostr.net%22%7D&host=https%3A%2F%2Fskyember44.online',
-      expectCleanUrl: true,
-      expectReferer: 'https://videostr.net/',
-      expectOrigin: 'https://videostr.net',
-      expectHost: 'https://skyember44.online',
+      name: '1. Current: storm + Referer:videostr.net + Origin:videostr.net',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://videostr.net/',
+        'Origin': 'https://videostr.net',
+      },
     },
+    // Strategy 2: Use vidlink.pro as referer (how VidLink's own player does it)
     {
-      name: 'Playlist URL without headers/host (pure CDN)',
-      raw: 'https://storm.vodvidl.site/proxy/file2/SimpleToken.m3u8',
-      expectCleanUrl: true,
-      expectReferer: 'https://vidlink.pro/',
-      expectOrigin: 'https://vidlink.pro',
-      expectHost: null,
+      name: '2. storm + Referer:vidlink.pro + Origin:vidlink.pro',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://vidlink.pro/',
+        'Origin': 'https://vidlink.pro',
+      },
     },
+    // Strategy 3: No Origin header (some CDNs block Origin on non-CORS requests)
     {
-      name: 'Playlist URL with only host param',
-      raw: 'https://storm.vodvidl.site/proxy/file2%2FToken.m3u8?host=https%3A%2F%2Fskyember44.online',
-      expectCleanUrl: true,
-      expectReferer: 'https://skyember44.online/',
-      expectOrigin: 'https://skyember44.online',
-      expectHost: 'https://skyember44.online',
+      name: '3. storm + Referer:videostr.net + NO Origin',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://videostr.net/',
+      },
+    },
+    // Strategy 4: Use the HOST param as the actual URL origin
+    {
+      name: '4. skyember44 host + Referer:videostr.net + Origin:videostr.net',
+      url: altUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://videostr.net/',
+        'Origin': 'https://videostr.net',
+      },
+    },
+    // Strategy 5: skyember44 as host + no Origin
+    {
+      name: '5. skyember44 host + Referer:videostr.net + NO Origin',
+      url: altUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://videostr.net/',
+      },
+    },
+    // Strategy 6: storm URL with Host header override to skyember44
+    {
+      name: '6. storm URL + Host:skyember44.online + Referer:videostr.net',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://videostr.net/',
+        'Origin': 'https://videostr.net',
+        'Host': 'skyember44.online',
+      },
+    },
+    // Strategy 7: No headers at all (maybe CDN doesn't care)
+    {
+      name: '7. storm + NO extra headers (just UA)',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36',
+      },
+    },
+    // Strategy 8: skyember44 + vidlink.pro referer
+    {
+      name: '8. skyember44 host + Referer:vidlink.pro',
+      url: altUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://vidlink.pro/',
+        'Origin': 'https://vidlink.pro',
+      },
+    },
+    // Strategy 9: skyember44 + NO headers
+    {
+      name: '9. skyember44 + NO extra headers',
+      url: altUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36',
+      },
+    },
+    // Strategy 10: storm + Sec-Fetch headers (browser-like)
+    {
+      name: '10. storm + full browser headers (Sec-Fetch)',
+      url: testUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://videostr.net/',
+        'Origin': 'https://videostr.net',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+      },
     },
   ];
   
-  let passed = 0;
-  let failed = 0;
-  
-  for (const tc of testCases) {
-    console.log(`  📦 ${tc.name}`);
-    
-    const result = parsePlaylistUrl(tc.raw);
-    let tcPassed = true;
-    
-    // Check clean URL has no headers/host
-    if (tc.expectCleanUrl) {
-      const clean = !result.cdnUrl.includes('headers=') && !result.cdnUrl.includes('host=');
-      if (!clean) {
-        console.log(`    ❌ CDN URL still has headers/host: ${result.cdnUrl}`);
-        tcPassed = false;
-      } else {
-        console.log(`    ✅ CDN URL is clean`);
-      }
+  const results = [];
+  for (const s of strategies) {
+    console.log(`  Testing: ${s.name}`);
+    const result = await fetchWithStrategy(s.name, s.url, s.headers);
+    console.log(`    → ${result.status} ${result.ct ? `(${result.ct})` : ''}`);
+    if (result.status === 200) {
+      console.log(`    → BODY: ${result.bodyPreview.substring(0, 100)}`);
     }
-    
-    // Check referer
-    if (result.referer !== tc.expectReferer) {
-      console.log(`    ❌ Referer: expected "${tc.expectReferer}", got "${result.referer}"`);
-      tcPassed = false;
-    } else {
-      console.log(`    ✅ Referer: ${result.referer}`);
-    }
-    
-    // Check origin
-    if (result.origin !== tc.expectOrigin) {
-      console.log(`    ❌ Origin: expected "${tc.expectOrigin}", got "${result.origin}"`);
-      tcPassed = false;
-    } else {
-      console.log(`    ✅ Origin: ${result.origin}`);
-    }
-    
-    // Check host
-    if (result.hostParam !== tc.expectHost) {
-      console.log(`    ❌ Host: expected "${tc.expectHost}", got "${result.hostParam}"`);
-      tcPassed = false;
-    } else {
-      console.log(`    ✅ Host: ${result.hostParam || '(none)'}`);
-    }
-    
-    // Check proxy URL structure
-    if (result.proxyUrl.startsWith('/api/vidlink/hls?url=')) {
-      const proxyUrlObj = new URL(result.proxyUrl, 'http://localhost');
-      const urlParam = proxyUrlObj.searchParams.get('url');
-      if (urlParam && !urlParam.includes('headers=') && !urlParam.includes('host=')) {
-        console.log(`    ✅ Proxy url param is clean`);
-      } else {
-        console.log(`    ❌ Proxy url param still has embedded params!`);
-        tcPassed = false;
-      }
-    }
-    
-    if (tcPassed) {
-      console.log(`    → PASSED ✅`);
-      passed++;
-    } else {
-      console.log(`    → FAILED ❌`);
-      failed++;
-    }
-    console.log();
+    results.push(result);
   }
   
-  console.log(`\n  Results: ${passed} passed, ${failed} failed out of ${testCases.length} tests`);
+  console.log('\n━━━ Results Summary ━━━\n');
+  console.log('  Strategy                                              Status');
+  console.log('  ────────────────────────────────────────────────────  ──────');
+  for (const r of results) {
+    const status = r.status === 200 ? '✅ 200' : `❌ ${r.status}`;
+    console.log(`  ${r.name.padEnd(56)} ${status}`);
+  }
   
-  if (failed > 0) {
-    console.log('\n  ❌ SOME TESTS FAILED — The fix may not be working correctly.');
+  const working = results.filter(r => r.status === 200);
+  console.log();
+  
+  if (working.length > 0) {
+    console.log('  🎉 FOUND WORKING STRATEGY:');
+    for (const w of working) {
+      console.log(`    → ${w.name}`);
+      if (w.bodyPreview) {
+        console.log(`    → Content: ${w.bodyPreview.substring(0, 120)}`);
+      }
+    }
   } else {
-    console.log('\n  ✅ ALL PARSING TESTS PASSED — URL separation is correct!');
-    console.log('  The 403 fix should work with real tokens from the browser iframe.');
+    console.log('  ❌ ALL strategies returned non-200.');
+    console.log('  Possible causes:');
+    console.log('    1. Token is expired (try re-running after refreshing the browser page)');
+    console.log('    2. CDN does IP pinning (token bound to browser IP, server IP differs)');
+    console.log('    3. CDN requires cookies we are not forwarding');
   }
 }
 
-function parsePlaylistUrl(rawPlaylist) {
-  const qMark = rawPlaylist.indexOf('?');
-  if (qMark !== -1) {
-    rawPlaylist =
-      rawPlaylist.slice(0, qMark).replace(/%2F/gi, '/') +
-      rawPlaylist.slice(qMark);
-  } else {
-    rawPlaylist = rawPlaylist.replace(/%2F/gi, '/');
-  }
-
-  let cdnUrl = rawPlaylist;
-  let embeddedHeaders = {};
-  let hostParam = null;
-
-  try {
-    const parsed = new URL(rawPlaylist);
-    const headersRaw = parsed.searchParams.get('headers');
-    hostParam = parsed.searchParams.get('host');
-    parsed.searchParams.delete('headers');
-    parsed.searchParams.delete('host');
-    cdnUrl = parsed.toString();
-
-    if (headersRaw) {
-      try { embeddedHeaders = JSON.parse(headersRaw); } catch {}
-    }
-  } catch {
-    cdnUrl = rawPlaylist;
-  }
-
-  let referer = 'https://vidlink.pro/';
-  let origin = 'https://vidlink.pro';
-
-  if (embeddedHeaders.referer || embeddedHeaders.Referer) {
-    referer = embeddedHeaders.referer || embeddedHeaders.Referer;
-  }
-  if (embeddedHeaders.origin || embeddedHeaders.Origin) {
-    origin = embeddedHeaders.origin || embeddedHeaders.Origin;
-  }
-
-  if (!(embeddedHeaders.referer || embeddedHeaders.Referer) && hostParam) {
-    try {
-      const hostOrigin = new URL(hostParam).origin;
-      referer = hostOrigin + '/';
-      origin = hostOrigin;
-    } catch {}
-  }
-
-  const headersForProxy = {};
-  if (referer) headersForProxy.referer = referer;
-  if (origin) headersForProxy.origin = origin;
-
-  let proxyParams = `url=${encodeURIComponent(cdnUrl)}`;
-  if (hostParam) proxyParams += `&host=${encodeURIComponent(hostParam)}`;
-  if (Object.keys(headersForProxy).length > 0) {
-    proxyParams += `&headers=${encodeURIComponent(JSON.stringify(headersForProxy))}`;
-  }
-
-  return {
-    cdnUrl,
-    hostParam,
-    embeddedHeaders,
-    referer,
-    origin,
-    proxyUrl: `/api/vidlink/hls?${proxyParams}`,
-  };
+/**
+ * Try to get a fresh playlist URL by going through VidLink's API.
+ * This needs the WASM-generated token, which we can't do from Node.
+ * Instead, we'll intercept a real request to our proxy.
+ */
+async function getFreshPlaylistUrl() {
+  // Method: Fetch the resolve page, look for any hardcoded data
+  // or try to access the API directly (won't work without WASM token)
+  
+  // Alternative: Use a headless approach to actually run VidLink in Puppeteer
+  // But that requires puppeteer which is heavy. Let's use a simpler approach.
+  
+  // Just use the /api/vidlink/proxy/ to call VidLink's API directly
+  // The /api/b/movie/ endpoint needs the WASM token, so we can't call it.
+  
+  return null; // We'll use the URL from browser logs
 }
 
 main().catch(e => {

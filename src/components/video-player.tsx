@@ -146,6 +146,17 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         fragLoadingMaxRetry: 4,
         manifestLoadingMaxRetry: 3,
         levelLoadingMaxRetry: 3,
+        xhrSetup: function (xhr) {
+          if (stream.headers) {
+            for (const [key, value] of Object.entries(stream.headers)) {
+              try {
+                xhr.setRequestHeader(key, value as string);
+              } catch (e) {
+                // Ignore unsafe headers that the browser manages automatically
+              }
+            }
+          }
+        }
       });
 
       hls.loadSource(stream.url);
