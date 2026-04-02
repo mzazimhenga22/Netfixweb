@@ -61,12 +61,12 @@ export function LandingPage() {
         {/* Header */}
         <header className="relative z-40 w-full px-4 sm:px-8 md:px-12 lg:px-44 py-6 flex items-center justify-between">
            <Link href="/">
-            <div className="relative w-24 sm:w-36 h-8 sm:h-12 cursor-pointer transition-transform hover:scale-105 active:scale-95 duration-200">
+            <div className="relative w-12 sm:w-16 h-14 sm:h-20 cursor-pointer transition-transform hover:scale-105 active:scale-95 duration-200 py-2">
                 <Image 
-                    src="/netflix-logo.png" 
+                    src="/netflix-n-logo.svg" 
                     alt="Netflix Logo" 
                     fill 
-                    className="object-contain object-left"
+                    className="object-contain object-left drop-shadow-[0_0_12px_rgba(229,9,20,0.6)]"
                     priority
                 />
             </div>

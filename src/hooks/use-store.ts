@@ -92,7 +92,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
           id: d.id,
           name: data.name,
           avatarId: data.avatarId || 'avatar1',
-          avatar: AVATAR_MAP[data.avatarId] || AVATAR_MAP.avatar1,
+          avatar: AVATAR_MAP[data.avatarId as string] || AVATAR_MAP['avatar1'],
           isLocked: data.isLocked || false,
           pin: data.pin || '',
           isKids: data.isKids || false,
