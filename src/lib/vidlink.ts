@@ -1,0 +1,131 @@
+/**
+ * VidLink Streaming Service (Web)
+ * 
+ * Provides direct HLS streaming links via VidLink.pro.
+ * 
+ * Flow:
+ * 1. VidLinkResolver component loads a proxied VidLink page in a hidden iframe
+ * 2. The proxy route injects an interceptor script that hooks fetch/XHR
+ * 3. When VidLink's JS makes the /api/b/ call, the interceptor captures the response
+ * 4. The response is sent to the parent window via postMessage
+ * 5. parseVidLinkResponse() extracts the clean m3u8 URL + metadata
+ */
+
+export interface VidLinkSkipMarker {
+  type: 'intro' | 'outro';
+  start: number;
+  end: number;
+}
+
+export interface VidLinkStream {
+  url: string;           // Direct HLS .m3u8 URL
+  headers: Record<string, string>;
+  captions: VidLinkCaption[];
+  markers?: VidLinkSkipMarker[];
+  sourceId: string;
+}
+
+export interface VidLinkCaption {
+  id: string;
+  url: string;
+  language: string;
+  type: string;
+}
+
+/**
+ * Build the VidLink embed URL for a given TMDB ID
+ */
+export function getVidLinkEmbedUrl(
+  tmdbId: string,
+  type: 'movie' | 'tv' = 'movie',
+  season?: number,
+  episode?: number
+): string {
+  if (type === 'tv' && season && episode) {
+    return `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`;
+  }
+  return `https://vidlink.pro/movie/${tmdbId}`;
+}
+
+/**
+ * Build the proxy resolver URL (used by the VidLinkResolver component)
+ */
+export function getVidLinkProxyUrl(
+  tmdbId: string,
+  type: 'movie' | 'tv' = 'movie',
+  season?: number,
+  episode?: number
+): string {
+  const params = new URLSearchParams({ tmdbId, type });
+  if (type === 'tv' && season) params.set('season', String(season));
+  if (type === 'tv' && episode) params.set('episode', String(episode));
+  return `/api/vidlink/resolve?${params.toString()}`;
+}
+
+/**
+ * Parse the raw VidLink API response into our clean stream format
+ */
+export function parseVidLinkResponse(data: any): VidLinkStream | null {
+  try {
+    if (!data?.stream?.playlist) return null;
+
+    const stream = data.stream;
+    let playlistUrl: string = stream.playlist;
+
+    // Decode proxy slashes: %2F → /
+    playlistUrl = playlistUrl.replace(/%2F/gi, '/');
+
+    console.log(`[VidLink] Playlist URL: ${playlistUrl.substring(0, 120)}...`);
+
+    // Build response headers
+    const responseHeaders: Record<string, string> = {};
+    if (stream.headers && typeof stream.headers === 'object') {
+      Object.assign(responseHeaders, stream.headers);
+    }
+    
+    // Only set Referer/Origin for file2 proxy paths that don't embed headers
+    const isFile2Proxy = /\/proxy\/file\d+\//i.test(playlistUrl);
+    if (isFile2Proxy && !responseHeaders['Referer']) {
+      responseHeaders['Referer'] = 'https://vidlink.pro/';
+      responseHeaders['Origin'] = 'https://vidlink.pro';
+    }
+    
+    // Standard browser User-Agent for all proxies to avoid 403 bot blocks
+    if (!responseHeaders['User-Agent']) {
+      responseHeaders['User-Agent'] = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+    }
+
+    // Captions
+    const captions: VidLinkCaption[] = (stream.captions || []).map((c: any) => ({
+      id: c.id || c.url,
+      url: c.url,
+      language: c.language || 'Unknown',
+      type: c.type || 'vtt',
+    }));
+
+    // Jump Markers (Intro / Outro)
+    const markers: VidLinkSkipMarker[] = [];
+    if (stream.intro) {
+      markers.push({ type: 'intro', start: stream.intro.start || 0, end: stream.intro.end || 0 });
+    }
+    if (stream.outro) {
+      markers.push({ type: 'outro', start: stream.outro.start || 0, end: stream.outro.end || 0 });
+    }
+    if (Array.isArray(stream.skips)) {
+      stream.skips.forEach((s: any) => {
+        markers.push({ type: s.type === 1 ? 'intro' : 'outro', start: s.start || 0, end: s.end || 0 });
+      });
+    }
+
+    return {
+      url: playlistUrl,
+      headers: responseHeaders,
+      captions,
+      markers,
+      sourceId: data.sourceId || 'vidlink',
+    };
+  } catch (e) {
+    console.error('[VidLink] Failed to parse response:', e);
+    return null;
+  }
+}

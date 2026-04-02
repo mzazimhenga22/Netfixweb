@@ -1,0 +1,58 @@
+{
+  "placeholderImages": [
+    {
+      "id": "hero-1",
+      "description": "Dramatic space sci-fi landscape",
+      "imageUrl": "https://picsum.photos/seed/hero1/1920/1080",
+      "imageHint": "space nebula"
+    },
+    {
+      "id": "movie-1",
+      "description": "Action movie poster",
+      "imageUrl": "https://picsum.photos/seed/m1/600/900",
+      "imageHint": "action movie"
+    },
+    {
+      "id": "movie-2",
+      "description": "Cyberpunk city thriller",
+      "imageUrl": "https://picsum.photos/seed/m2/600/900",
+      "imageHint": "cyberpunk city"
+    },
+    {
+      "id": "movie-3",
+      "description": "Fantasy adventure forest",
+      "imageUrl": "https://picsum.photos/seed/m3/600/900",
+      "imageHint": "fantasy forest"
+    },
+    {
+      "id": "movie-4",
+      "description": "Sci-fi robot portrait",
+      "imageUrl": "https://picsum.photos/seed/m4/600/900",
+      "imageHint": "robot portrait"
+    },
+    {
+      "id": "movie-5",
+      "description": "Romantic sunset beach",
+      "imageUrl": "https://picsum.photos/seed/m5/600/900",
+      "imageHint": "romantic sunset"
+    },
+    {
+      "id": "movie-6",
+      "description": "Horror dark house",
+      "imageUrl": "https://picsum.photos/seed/m6/600/900",
+      "imageHint": "haunted house"
+    },
+    {
+      "id": "movie-7",
+      "description": "Documentary nature mountains",
+      "imageUrl": "https://picsum.photos/seed/m7/600/900",
+      "imageHint": "mountain landscape"
+    },
+    {
+      "id": "movie-8",
+      "description": "Comedy bright characters",
+      "imageUrl": "https://picsum.photos/seed/m8/600/900",
+      "imageHint": "comedy group"
+    }
+  ]
+}
