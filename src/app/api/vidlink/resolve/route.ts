@@ -131,19 +131,12 @@ const INTERCEPTOR_SCRIPT = `
 
   XMLHttpRequest.prototype.open = function(method, url, ...rest) {
     this._vOrigUrl = url;
-    // Block analytics in XHR too
-    if (typeof url === 'string' && isBlocked(url)) {
-      this._vBlocked = true;
-      dbg('XHR BLOCKED: ' + url.substring(0, 80));
-      return;
-    }
     const proxied = proxyUrl(url);
     this._vUrl = proxied;
     return origOpen.apply(this, [method, proxied, ...rest]);
   };
 
   XMLHttpRequest.prototype.send = function(...args) {
-    if (this._vBlocked) return; // Skip blocked requests
     this.addEventListener('load', function() {
       const matchUrl = this._vOrigUrl || this._vUrl || '';
       if (!resolved && matchUrl.includes('/api/b/')) {
