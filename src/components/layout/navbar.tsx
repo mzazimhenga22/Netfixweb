@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { useAuth, useWatchlist } from '@/hooks/use-store';
+import { useAuth, useWatchlist, AVATAR_MAP } from '@/hooks/use-store';
 import { cn } from '@/lib/utils';
 import { getOnlyOnNetflix } from '@/lib/tmdb';
 import { Content } from '@/lib/types';
@@ -82,13 +82,13 @@ export function Navbar() {
       isScrolled ? "bg-[#141414] shadow-md" : "bg-gradient-to-b from-black/70 via-black/40 to-transparent"
     )}>
       <div className="flex items-center gap-4 md:gap-10 w-full max-w-[1920px] mx-auto">
-        <Link href="/browse" className="relative flex items-center h-8 sm:h-12 transition-transform active:scale-95 duration-200">
+        <Link href="/browse" className="relative flex items-center h-8 sm:h-10 transition-transform active:scale-95 duration-200">
           <Image
-            src="/netflix-n-logo.svg"
+            src="/netflix-logo.png"
             alt="Netflix"
-            width={45}
-            height={60}
-            className="h-10 md:h-14 w-auto object-contain brightness-110 cursor-pointer drop-shadow-[0_0_10px_rgba(229,9,20,0.5)]"
+            width={120}
+            height={32}
+            className="h-full w-auto object-contain brightness-110"
             priority
           />
         </Link>
@@ -235,7 +235,7 @@ export function Navbar() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-sm overflow-hidden h-8 w-8 p-0 flex items-center justify-center hover:bg-transparent group">
                 <Image
-                  src={selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
+                  src={AVATAR_MAP[selectedProfile?.avatar || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
                   alt="Profile"
                   width={32}
                   height={32}
@@ -246,7 +246,7 @@ export function Navbar() {
             <DropdownMenuContent align="end" className="bg-black/95 border-white/10 text-white min-w-[220px] p-2 shadow-2xl mt-2 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="px-3 py-4 flex items-center gap-3">
                 <Image
-                  src={selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
+                  src={AVATAR_MAP[selectedProfile?.avatar || ''] || selectedProfile?.avatar || '/assets/avatars/avatar1.png'}
                   alt="Profile"
                   width={32}
                   height={32}

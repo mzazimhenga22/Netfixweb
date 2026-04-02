@@ -60,17 +60,16 @@ export function LandingPage() {
         
         {/* Header */}
         <header className="relative z-40 w-full px-4 sm:px-8 md:px-12 lg:px-44 py-6 flex items-center justify-between">
-           <Link href="/">
-            <div className="relative w-12 sm:w-16 h-14 sm:h-20 cursor-pointer transition-transform hover:scale-105 active:scale-95 duration-200 py-2">
-                <Image 
-                    src="/netflix-n-logo.svg" 
-                    alt="Netflix Logo" 
-                    fill 
-                    className="object-contain object-left drop-shadow-[0_0_12px_rgba(229,9,20,0.6)]"
-                    priority
-                />
-            </div>
-           </Link>
+           <Link href="/" className="relative flex items-center h-8 sm:h-10 transition-transform active:scale-95 duration-200">
+          <Image
+            src="/netflix-logo.png"
+            alt="Netflix"
+            width={120}
+            height={32}
+            className="h-full w-auto object-contain brightness-110"
+            priority
+          />
+        </Link>
            <Link href={user ? "/browse" : "/auth"}>
              <Button className="bg-[#E50914] hover:bg-[#C11119] text-white font-medium rounded text-sm h-8 px-4">
                   {user ? 'Browse' : 'Sign In'}

@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: '**.nflxso.net',
+        hostname: 'occ-0-*.nflxso.net',
         port: '',
         pathname: '/**',
       },
