@@ -63,41 +63,115 @@ export function getVidLinkProxyUrl(
 }
 
 /**
- * Parse the raw VidLink API response into our clean stream format
+ * Parse the raw VidLink API response into our clean stream format.
+ *
+ * Key insight: VidLink's playlist URL often looks like:
+ *   https://storm.vodvidl.site/proxy/file2/TOKEN.m3u8?headers={...}&host=https://cdn.example.com
+ *
+ * The `headers` and `host` params are NOT CDN params — they are metadata
+ * VidLink embeds so consumers know what headers to send. We must extract them
+ * and pass them to our HLS proxy separately, so the clean CDN URL has NO
+ * extra params that could corrupt the signed token.
  */
 export function parseVidLinkResponse(data: any): VidLinkStream | null {
   try {
     if (!data?.stream?.playlist) return null;
 
     const stream = data.stream;
-    let playlistUrl: string = stream.playlist;
+    let rawPlaylist: string = stream.playlist;
 
-    // Decode proxy slashes: %2F → /
-    playlistUrl = playlistUrl.replace(/%2F/gi, '/');
+    // VidLink sometimes double-encodes slashes in path segments: %2F → /
+    // Only decode path-level %2F (before the '?'), not query param values
+    const qMark = rawPlaylist.indexOf('?');
+    if (qMark !== -1) {
+      rawPlaylist =
+        rawPlaylist.slice(0, qMark).replace(/%2F/gi, '/') +
+        rawPlaylist.slice(qMark);
+    } else {
+      rawPlaylist = rawPlaylist.replace(/%2F/gi, '/');
+    }
 
-    console.log(`[VidLink] Playlist URL: ${playlistUrl.substring(0, 120)}...`);
+    console.log(`[VidLink] Playlist URL: ${rawPlaylist.substring(0, 120)}...`);
 
-    // Route the m3u8 through our HLS proxy to bypass CORS
-    // The proxy also forwards embedded headers (referer, origin) from the URL
-    playlistUrl = `/api/vidlink/hls?url=${encodeURIComponent(playlistUrl)}`;
+    // --- Extract embedded `headers` and `host` from the playlist URL ---
+    // These are VidLink's way of telling us what headers the CDN needs.
+    // We must strip them from the URL before forwarding to the CDN.
+    let cdnUrl = rawPlaylist;
+    let embeddedHeaders: Record<string, string> = {};
+    let hostParam: string | null = null;
 
-    // Build response headers
+    try {
+      const parsed = new URL(rawPlaylist);
+
+      // Extract and remove our special params
+      const headersRaw = parsed.searchParams.get('headers');
+      hostParam = parsed.searchParams.get('host');
+      parsed.searchParams.delete('headers');
+      parsed.searchParams.delete('host');
+      cdnUrl = parsed.toString();
+
+      if (headersRaw) {
+        try { embeddedHeaders = JSON.parse(headersRaw); } catch {}
+      }
+    } catch {
+      // rawPlaylist wasn't a valid URL — use as-is
+      cdnUrl = rawPlaylist;
+    }
+
+    // Build the response headers that our proxy should forward to the CDN
     const responseHeaders: Record<string, string> = {};
+
+    // 1. VidLink-level headers (from stream.headers in the API response)
     if (stream.headers && typeof stream.headers === 'object') {
       Object.assign(responseHeaders, stream.headers);
     }
-    
-    // Only set Referer/Origin for file2 proxy paths that don't embed headers
-    const isFile2Proxy = /\/proxy\/file\d+\//i.test(playlistUrl);
-    if (isFile2Proxy && !responseHeaders['Referer']) {
-      responseHeaders['Referer'] = 'https://vidlink.pro/';
-      responseHeaders['Origin'] = 'https://vidlink.pro';
+
+    // 2. Embedded URL headers (override / supplement VidLink headers)
+    Object.assign(responseHeaders, embeddedHeaders);
+
+    // 3. If referer/origin still not set, fall back based on host param
+    if (!responseHeaders['Referer'] && !responseHeaders['referer']) {
+      if (hostParam) {
+        try {
+          const hostOrigin = new URL(hostParam).origin;
+          responseHeaders['Referer'] = hostOrigin + '/';
+          responseHeaders['Origin'] = hostOrigin;
+        } catch {
+          responseHeaders['Referer'] = 'https://vidlink.pro/';
+          responseHeaders['Origin'] = 'https://vidlink.pro';
+        }
+      } else {
+        responseHeaders['Referer'] = 'https://vidlink.pro/';
+        responseHeaders['Origin'] = 'https://vidlink.pro';
+      }
     }
-    
-    // Standard browser User-Agent for all proxies to avoid 403 bot blocks
+
+    // 4. Standard browser User-Agent
     if (!responseHeaders['User-Agent']) {
       responseHeaders['User-Agent'] = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     }
+
+    // --- Build the HLS proxy URL ---
+    // We pass the CLEAN CDN URL (no headers/host params) plus the host hint.
+    // Our server-side proxy will use these to reconstruct the right fetch headers.
+    let proxyParams = `url=${encodeURIComponent(cdnUrl)}`;
+    if (hostParam) proxyParams += `&host=${encodeURIComponent(hostParam)}`;
+
+    // Encode the headers as a single JSON param so the proxy can forward them
+    const headersForProxy: Record<string, string> = {};
+    if (responseHeaders['Referer'] || responseHeaders['referer']) {
+      headersForProxy['referer'] = responseHeaders['Referer'] || responseHeaders['referer'];
+    }
+    if (responseHeaders['Origin'] || responseHeaders['origin']) {
+      headersForProxy['origin'] = responseHeaders['Origin'] || responseHeaders['origin'];
+    }
+    if (Object.keys(headersForProxy).length > 0) {
+      proxyParams += `&headers=${encodeURIComponent(JSON.stringify(headersForProxy))}`;
+    }
+
+    const playlistUrl = `/api/vidlink/hls?${proxyParams}`;
+    console.log(`[VidLink] ✅ Stream resolved!`);
+    console.log(`[VidLink] 🎬 Proxy URL: ${playlistUrl.substring(0, 120)}...`);
 
     // Captions
     const captions: VidLinkCaption[] = (stream.captions || []).map((c: any) => ({
