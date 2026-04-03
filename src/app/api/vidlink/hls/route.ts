@@ -1,50 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as https from 'https';
 
-// Helper to bypass undici URL normalization bugs and send the EXACT path
-function exactFetch(urlStr: string, headers: Record<string, string>): Promise<{ status: number, headers: any, body: Buffer }> {
-  return new Promise((resolve, reject) => {
-    try {
-      const url = new URL(urlStr);
-      const req = https.request({
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname + url.search, // Preserves exact encoding!
-        method: 'GET',
-        headers: headers
-      }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk) => chunks.push(chunk));
-        res.on('end', () => {
-          resolve({
-            status: res.statusCode || 500,
-            headers: res.headers,
-            body: Buffer.concat(chunks)
-          });
-        });
-      });
-      req.on('error', reject);
-      req.end();
-    } catch(e) {
-      reject(e);
-    }
-  });
-}
-
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 25;
 
 /**
  * HLS Proxy — FAST streaming proxy for m3u8 playlists and .ts segments.
  * Bypasses CORS from CDN providers (storm.vodvidl.site, etc.)
  *
- * Key fix: The `host` param embedded in the m3u8 URL specifies the CDN
- * origin. We must use it as the Origin/Referer when fetching, otherwise
- * the CDN returns 403. Also strips query params before fetching the raw
- * CDN URL so we don't send our internal params upstream.
+ * Runs on the Edge Runtime to:
+ * 1. Bypass Node.js `undici` URL normalization bugs (%2F is preserved natively).
+ * 2. Prevent Identity TLS fingerprint mismatch (Edge proxies route cleanly).
+ * 3. Provide true zero-copy streaming for video segments via ReadableStream.
  */
 
 const PROXY_BASE = '/api/vidlink/hls?url=';
+const ALLOWED_HOSTS = ['vidlink', 'videostr', 'vodvidl', 'thunderleaf', 'aurora'];
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeout);
+    return res;
+  } catch (e) {
+    if (retries === 0) throw e;
+    return fetchWithRetry(url, options, retries - 1);
+  }
+}
 
 export async function GET(req: NextRequest) {
   const targetUrl = req.nextUrl.searchParams.get('url');
@@ -75,17 +58,24 @@ export async function GET(req: NextRequest) {
     }
     const upstreamUrl = urlObj.toString();
 
+    // Security: Prevent open proxy abuse
+    if (!ALLOWED_HOSTS.some(h => upstreamUrl.includes(h))) {
+      return new NextResponse('Forbidden proxy target', { status: 403 });
+    }
+
     let referer = 'https://vidlink.pro/';
     let origin = 'https://vidlink.pro';
 
     // IMPORTANT: Check headers param FIRST — it contains the correct
     // Referer/Origin that the CDN expects (e.g. videostr.net).
-    // The host param is the CDN proxy host, NOT the Referer.
     if (headersParam) {
       try {
-        const h = JSON.parse(headersParam);
-        if (h.referer || h.Referer) referer = h.referer || h.Referer;
-        if (h.origin || h.Origin) origin = h.origin || h.Origin;
+        const parsed = JSON.parse(decodeURIComponent(headersParam));
+        const lowerHeaders = Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [k.toLowerCase(), v])
+        );
+        if (lowerHeaders.referer) referer = lowerHeaders.referer as string;
+        if (lowerHeaders.origin) origin = lowerHeaders.origin as string;
       } catch {}
     }
 
@@ -101,46 +91,57 @@ export async function GET(req: NextRequest) {
       'Sec-Fetch-Site': 'cross-site',
     };
 
-    console.log('[HLS] FINAL URL:', upstreamUrl);
-    console.log('[HLS] HEADERS:', fetchHeaders);
+    console.log('[HLS] Edge FINAL URL:', upstreamUrl);
 
-    const res = await exactFetch(upstreamUrl, fetchHeaders);
+    // Edge fetch natively uses Web Fetch, avoiding the %2F undici bug automatically.
+    // Enhanced with retry limits and a 10s AbortController timeout
+    const res = await fetchWithRetry(upstreamUrl, {
+      headers: fetchHeaders,
+      redirect: 'manual',
+    });
+
+    // Handle CDN level redirects transparently
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (location) {
+        console.log(`[HLS-Proxy] Following CDN redirect to ${location}`);
+        return GET(new NextRequest(`${req.nextUrl.origin}/api/vidlink/hls?url=${encodeURIComponent(location)}`));
+      }
+    }
 
     if (res.status >= 400) {
-      console.error(`[HLS-Proxy] ❌ ${res.status} for ${upstreamUrl}`);
+      console.error(`[HLS-Proxy] ❌ Edge ${res.status} for ${upstreamUrl}`);
       return new NextResponse(`Upstream error: ${res.status}`, { status: res.status });
     }
 
-    const ct = res.headers['content-type'] || '';
+    const ct = res.headers.get('content-type') || '';
     const isPlaylist = upstreamUrl.includes('.m3u8') || ct.includes('mpegurl');
 
     if (isPlaylist) {
-      const text = res.body.toString('utf-8');
+      const text = await res.text();
       const rewritten = rewritePlaylist(text, upstreamUrl, headersParam, hostParam);
 
       return new NextResponse(rewritten, {
         headers: {
           'Content-Type': 'application/vnd.apple.mpegurl',
           'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store',
+          'Cache-Control': 'public, max-age=5, stale-while-revalidate=30',
         },
       });
     }
 
-    // For .ts segments: stream through (zero-copy)
-    const responseHeaders: Record<string, string> = {
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=3600, immutable',
-    };
-    if (ct) responseHeaders['Content-Type'] = ct as string;
-    const cl = res.headers['content-length'];
-    if (cl) responseHeaders['Content-Length'] = cl as string;
+    // For .ts segments: stream through directly (ReadableStream zero-copy passthrough)
+    const responseHeaders = new Headers();
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Cache-Control', 'public, max-age=3600, immutable');
+    if (ct) responseHeaders.set('Content-Type', ct);
+    const cl = res.headers.get('content-length');
+    if (cl) responseHeaders.set('Content-Length', cl);
 
-    // Convert Node.js Buffer to standard Uint8Array to satisfy Next.js BodyInit type
-    return new NextResponse(new Uint8Array(res.body), { headers: responseHeaders });
+    return new NextResponse(res.body, { headers: responseHeaders });
 
   } catch (error: any) {
-    console.error(`[HLS-Proxy] ❌ ${error.message}`);
+    console.error(`[HLS-Proxy] ❌ Edge fetch error: ${error.message}`);
     return new NextResponse(null, { status: 502 });
   }
 }
