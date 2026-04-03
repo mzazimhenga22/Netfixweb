@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Fight Club (1999)</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Access-Control-Allow-Origin" content="*" />
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.0-2/css/all.min.css" integrity="" crossorigin="anonymous"/>
+<link rel="stylesheet" href="/style.css?t=1710289820"/>
+<style>
+    
+    
+    .mctitle a {
+        font-size:1em !important;
+    }
+    
+    #AdWidgetContainer {
+        position: fixed !important;
+        transition: transform 1s linear 0s !important; 
+        opacity: 1 !important; 
+        transform: translate(0px, 0px) !important;
+    }
+    
+    
+    #ad720 {
+        width: 100%;
+        position: absolute;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+    
+    #ad720 .ad_container {
+        max-width: 720px;
+        position: relative;
+    }
+    #ad720 .ad_container img {
+        width: 100%;
+        height: auto;
+    }
+    #ad720 .ad_container #close {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        color: white;
+        opacity: 0.7;
+    }
+    
+    #ad720 .ad_container #close:hover {
+        opacity: 1;
+        cursor: pointer;
+    }
+    
+    
+    #onexbet {
+        position: absolute;
+        top: calc(50% - 25px);
+        left: -30px;
+        transform: rotate(-90deg);
+    }
+    
+    #onexbet img {
+        width: 100px;
+        height: 36.5px;
+    }
+    
+    
+</style>
+</head>
+<body data-i="137523" >
+    
+    
+<script type="application/javascript">(()=>{var t={9662:(t,r,n)=>{var e=n(614),i=n(6330),o=TypeError;t.exports=function(t){if(e(t))return t;throw o(i(t)+' is not a function')}},9483:(t,r,n)=>{var e=n(4411),i=n(6330),o=TypeError;t.exports=function(t){if(e(t))return t;throw o(i(t)+' is not a constructor')}},6077:(t,r,n)=>{var e=n(614),i=String,o=TypeError;t.exports=function(t){if('object'==typeof t||e(t))return t;throw o("Can't set "+i(t)+' as a prototype')}},1223:(t,r,n)=>{var e=n(5112),i=n(30),o=n(3070).f,u=e('unscopables'),a=Array.prototype;null==a[u]&&o(a,u,{configurable:!0,value:i(null)}),t.exports=function(t){a[u][t]=!0}},1530:(t,r,n)=>{"use strict";var e=n(8710).charAt;t.exports=function(t,r,n){return r+(n?e(t,r).length:1)}},5787:(t,r,n)=>{var e=n(7976),i=TypeError;t.exports=function(t,r){if(e(r,t))return t;throw i('Incorrect invocation')}},9670:(t,r,n)=>{var e=n(111),i=String,o=TypeError;t.exports=function(t){if(e(t))return t;throw o(i(t)+' is not an object')}},3013:t=>{t.exports='undefined'!=typeof ArrayBuffer&&'undefined'!=typeof DataView},260:(t,r,n)=>{"use strict";var e,i,o,u=n(3013),a=n(9781),c=n(7854),f=n(614),v=n(111),s=n(2597),l=n(648),h=n(6330),d=n(8880),y=n(8052),g=n(7045),b=n(7976),w=n(9518),p=n(7674),m=n(5112),S=n(9711),A=n(9909),T=A.enforce,O=A.get,j=c.Int8Array,E=j&&j.prototype,L=c.Uint8ClampedArray,M=L&&L.prototype,_=j&&w(j),R=E&&w(E),I=Object.prototype,x=c.TypeError,$=m('toStringTag'),F=S('TYPED_ARRAY_TAG'),D='TypedArrayConstructor',P=u&&!!p&&'Opera'!==l(c.opera),C=!1,U={Int8Array:1,Uint8Array:1,Uint8ClampedArray:1,Int16Array:2,Uint16Array:2,Int32Array:4,Uint32Array:4,Float32Array:4,Float64Array:8},k={BigInt64Array:8,BigUint64Array:8},N=function(t){var r=w(t);if(v(r)){var n=O(r);return n&&s(n,D)?n[D]:N(r)}},B=function(t){if(!v(t))return!1;var r=l(t);return s(U,r)||s(k,r)};for(e in U)(o=(i=c[e])&&i.prototype)?T(o)[D]=i:P=!1;for(e in k)(o=(i=c[e])&&i.prototype)&&(T(o)[D]=i);if((!P||!f(_)||_===Function.prototype)&&(_=function(){throw x('Incorrect invocation')},P))for(e in U)c[e]&&p(c[e],_);if((!P||!R||R===I)&&(R=_.prototype,P))for(e in U)c[e]&&p(c[e].prototype,R);if(P&&w(M)!==R&&p(M,R),a&&!s(R,$))for(e in C=!0,g(R,$,{configurable:!0,get:function(){return v(this)?this[F]:void 0}}),U)c[e]&&d(c[e],F,e);t.exports={NATIVE_ARRAY_BUFFER_VIEWS:P,TYPED_ARRAY_TAG:C&&F,aTypedArray:function(t){if(B(t))return t;throw x('Target is not a typed array')},aTypedArrayConstructor:function(t){if(f(t)&&(!p||b(_,t)))return t;throw x(h(t)+' is not a typed array constructor')},exportTypedArrayMethod:function(t,r,n,e){if(a){if(n)for(var i in U){var o=c[i];if(o&&s(o.prototype,t))try{delete o.prototype[t]}catch(n){try{o.prototype[t]=r}catch(t){}}}R[t]&&!n||y(R,t,n?r:P&&E[t]||r,e)}},exportTypedArrayStaticMethod:function(t,r,n){var e,i;if(a){if(p){if(n)for(e in U)if((i=c[e])&&s(i,t))try{delete i[t]}catch(t){}if(_[t]&&!n)return;try{return y(_,t,n?r:P&&_[t]||r)}catch(t){}}for(e in U)!(i=c[e])||i[t]&&!n||y(i,t,r)}},getTypedArrayConstructor:N,isView:function(t){if(!v(t))return!1;var r=l(t);return'DataView'===r||s(U,r)||s(k,r)},isTypedArray:B,TypedArray:_,TypedArrayPrototype:R}},3331:(t,r,n)=>{"use strict";var e=n(7854),i=n(1702),o=n(9781),u=n(3013),a=n(6530),c=n(8880),f=n(7045),v=n(9190),s=n(7293),l=n(5787),h=n(9303),d=n(7466),y=n(7067),g=n(1179),b=n(9518),w=n(7674),p=n(8006).f,m=n(1285),S=n(1589),A=n(80

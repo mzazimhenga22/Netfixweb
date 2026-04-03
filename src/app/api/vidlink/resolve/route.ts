@@ -10,13 +10,19 @@ export const maxDuration = 25; // Netlify serverless timeout (seconds)
  * Serves VidLink's embed page through our domain with an interceptor
  * script injected to capture the /api/b/ response containing the m3u8 URL.
  * 
- * Key design decisions:
- * - Static resources (script/link/img tags in HTML) → rewritten to absolute
- *   vidlink.pro URLs. Script/CSS tags are CORS-exempt so this works.
- * - Dynamic fetch/XHR calls (VidLink's API) → intercepted and routed through
- *   our /api/vidlink/proxy/ route to avoid CORS. We capture /api/b/ responses.
- * - Dynamic script creation → intercept createElement to rewrite src URLs
- *   to absolute vidlink.pro URLs (CORS-exempt for script tags).
+ * KEY FIX: ALL resources (JS, WASM, CSS, API) are routed through our
+ * same-origin proxy (/api/vidlink/proxy/). This prevents the browser's
+ * Tracking Prevention from blocking storage access for VidLink's scripts.
+ * 
+ * Before (broken):
+ *   - Static resources → direct to https://vidlink.pro/ (third-party)
+ *   - Browser tracking prevention blocked storage access
+ *   - WASM token generation failed → /api/b/ never called → TIMEOUT
+ * 
+ * After (fixed):
+ *   - ALL resources → through /api/vidlink/proxy/ (same-origin)
+ *   - No third-party scripts = no tracking prevention
+ *   - WASM loads & runs normally → /api/b/ succeeds → stream captured
  */
 
 const INTERCEPTOR_SCRIPT = `
@@ -24,7 +30,6 @@ const INTERCEPTOR_SCRIPT = `
 (function() {
   let resolved = false;
   const PROXY_BASE = '/api/vidlink/proxy/';
-  const VIDLINK_ORIGIN = 'https://vidlink.pro';
 
   function dbg(msg) {
     try {
@@ -32,117 +37,122 @@ const INTERCEPTOR_SCRIPT = `
     } catch(e) {}
   }
 
-  // Helper: rewrite a URL for fetch/XHR (goes through our proxy to avoid CORS)
+  // Helper: rewrite ALL URLs to go through our same-origin proxy
+  // This is the KEY fix - everything stays same-origin, no tracking prevention
   function proxyUrl(url) {
     if (typeof url !== 'string') return url;
-    // Already absolute to vidlink.pro? Route through proxy
-    if (url.startsWith(VIDLINK_ORIGIN + '/')) {
-      return PROXY_BASE + url.substring(VIDLINK_ORIGIN.length + 1);
+    
+    // Already going through our proxy
+    if (url.startsWith(PROXY_BASE) || url.startsWith('/api/vidlink/')) return url;
+    
+    // Absolute vidlink.pro URL → proxy
+    if (url.startsWith('https://vidlink.pro/')) {
+      return PROXY_BASE + url.substring('https://vidlink.pro/'.length);
     }
-    if (url.startsWith(VIDLINK_ORIGIN)) {
-      return PROXY_BASE + url.substring(VIDLINK_ORIGIN.length);
+    if (url.startsWith('http://vidlink.pro/')) {
+      return PROXY_BASE + url.substring('http://vidlink.pro/'.length);
     }
-    // Root-relative path? Route through proxy
-    if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith(PROXY_BASE)) {
+    
+    // Root-relative path → proxy (these are vidlink.pro resources)
+    if (url.startsWith('/') && !url.startsWith('//')) {
       return PROXY_BASE + url.substring(1);
     }
-    // Relative path (no leading slash)? Route through proxy
+    
+    // Relative path (no leading slash) → proxy
     if (!url.startsWith('http') && !url.startsWith('//') && !url.startsWith('data:') && !url.startsWith('blob:')) {
       return PROXY_BASE + url;
     }
-    return url;
-  }
-
-  // Helper: rewrite a URL for script/link/img tags (direct to vidlink.pro, CORS-exempt)
-  function directUrl(url) {
-    if (typeof url !== 'string') return url;
-    if (url.startsWith('/') && !url.startsWith('//')) {
-      return VIDLINK_ORIGIN + url;
-    }
-    if (!url.startsWith('http') && !url.startsWith('//') && !url.startsWith('data:') && !url.startsWith('blob:')) {
-      return VIDLINK_ORIGIN + '/' + url;
-    }
+    
+    // External URLs (other domains) - leave as-is
     return url;
   }
 
   // Blocked URLs - analytics/tracking that waste time
-  const BLOCKED = ['cdn-cgi/rum', 'cdn-cgi/trace', 'cdn-cgi/beacon', 'analytics', 'sentry'];
+  var BLOCKED = ['cdn-cgi/rum', 'cdn-cgi/trace', 'cdn-cgi/beacon', 'analytics', 'sentry', 'clarity'];
   function isBlocked(url) {
-    return BLOCKED.some(function(b) { return url.includes(b); });
+    return BLOCKED.some(function(b) { return url.indexOf(b) !== -1; });
   }
 
   dbg('Interceptor injected, hooking fetch, XHR, and DOM...');
 
   // ─── 1. Intercept fetch() ───
-  const originalFetch = window.fetch;
-  window.fetch = function(...args) {
-    let url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-    const originalUrl = url;
+  var originalFetch = window.fetch;
+  window.fetch = function() {
+    var args = Array.prototype.slice.call(arguments);
+    var url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+    var originalUrl = url;
     
-    // Block analytics/tracking requests instantly
+    // Block analytics/tracking
     if (isBlocked(originalUrl)) {
-      dbg('BLOCKED: ' + originalUrl.substring(0, 80));
       return Promise.resolve(new Response('', { status: 204 }));
     }
     
-    // Rewrite URL to go through our proxy
+    // Rewrite URL to go through our same-origin proxy
+    var proxiedUrl = proxyUrl(url);
     if (typeof args[0] === 'string') {
-      args[0] = proxyUrl(args[0]);
+      args[0] = proxiedUrl;
     } else if (args[0] && args[0].url) {
-      args[0] = new Request(proxyUrl(args[0].url), args[0]);
+      args[0] = new Request(proxiedUrl, args[0]);
     }
     
-    const fetchUrl = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+    var fetchUrl = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
     dbg('FETCH: ' + originalUrl.substring(0, 100) + ' → ' + fetchUrl.substring(0, 100));
 
-    return originalFetch.apply(this, args).then(async response => {
-      // Check BOTH original and proxied URL for /api/b/ match
-      if (!resolved && (originalUrl.includes('/api/b/') || fetchUrl.includes('/api/b/'))) {
+    return originalFetch.apply(this, args).then(function(response) {
+      // Check for /api/b/ response containing the stream
+      if (!resolved && (originalUrl.indexOf('/api/b/') !== -1 || fetchUrl.indexOf('/api/b/') !== -1 || fetchUrl.indexOf('proxy/api/b/') !== -1)) {
         dbg('MATCH! /api/b/ found, reading response...');
         try {
-          const clone = response.clone();
-          const text = await clone.text();
-          dbg('Response length: ' + text.length);
-          const json = JSON.parse(text);
-          if (json && json.stream && json.stream.playlist) {
-            resolved = true;
-            dbg('SUCCESS! Playlist found: ' + json.stream.playlist.substring(0, 80));
-            window.parent.postMessage({
-              type: 'VIDLINK_STREAM',
-              data: json
-            }, '*');
-          } else {
-            dbg('No stream.playlist in response keys: ' + Object.keys(json || {}).join(','));
-          }
+          var clone = response.clone();
+          clone.text().then(function(text) {
+            dbg('Response length: ' + text.length);
+            try {
+              var json = JSON.parse(text);
+              if (json && json.stream && json.stream.playlist) {
+                resolved = true;
+                dbg('SUCCESS! Playlist found: ' + json.stream.playlist.substring(0, 80));
+                window.parent.postMessage({
+                  type: 'VIDLINK_STREAM',
+                  data: json
+                }, '*');
+              } else {
+                dbg('No stream.playlist in response keys: ' + Object.keys(json || {}).join(','));
+              }
+            } catch(e) {
+              dbg('JSON parse error: ' + e.message);
+            }
+          });
         } catch(e) {
-          dbg('Parse error: ' + e.message);
+          dbg('Clone error: ' + e.message);
         }
       }
       return response;
-    }).catch(err => {
+    }).catch(function(err) {
       dbg('FETCH ERROR: ' + originalUrl.substring(0, 80) + ' → ' + err.message);
       throw err;
     });
   };
 
   // ─── 2. Intercept XMLHttpRequest ───
-  const origOpen = XMLHttpRequest.prototype.open;
-  const origSend = XMLHttpRequest.prototype.send;
+  var origOpen = XMLHttpRequest.prototype.open;
+  var origSend = XMLHttpRequest.prototype.send;
 
-  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+  XMLHttpRequest.prototype.open = function(method, url) {
     this._vOrigUrl = url;
-    const proxied = proxyUrl(url);
+    var proxied = proxyUrl(url);
     this._vUrl = proxied;
-    return origOpen.apply(this, [method, proxied, ...rest]);
+    var restArgs = Array.prototype.slice.call(arguments, 2);
+    return origOpen.apply(this, [method, proxied].concat(restArgs));
   };
 
-  XMLHttpRequest.prototype.send = function(...args) {
+  XMLHttpRequest.prototype.send = function() {
+    var self = this;
     this.addEventListener('load', function() {
-      const matchUrl = this._vOrigUrl || this._vUrl || '';
-      if (!resolved && matchUrl.includes('/api/b/')) {
+      var matchUrl = self._vOrigUrl || self._vUrl || '';
+      if (!resolved && (matchUrl.indexOf('/api/b/') !== -1)) {
         dbg('XHR MATCH! /api/b/ response received');
         try {
-          const json = JSON.parse(this.responseText);
+          var json = JSON.parse(self.responseText);
           if (json && json.stream && json.stream.playlist) {
             resolved = true;
             dbg('XHR SUCCESS! Playlist: ' + json.stream.playlist.substring(0, 80));
@@ -154,26 +164,26 @@ const INTERCEPTOR_SCRIPT = `
         } catch(e) { dbg('XHR parse error: ' + e.message); }
       }
     });
-    return origSend.apply(this, args);
+    return origSend.apply(this, arguments);
   };
 
-  // ─── 3. Intercept dynamic script/link creation ───
-  // Scripts and CSS are CORS-exempt, so we point them directly to vidlink.pro
-  const origCreateElement = document.createElement.bind(document);
+  // ─── 3. Intercept dynamic script/link/img creation ───
+  // KEY: Scripts now also go through our proxy (same-origin) to avoid
+  // tracking prevention. This is the fix for the storage access issue.
+  var origCreateElement = document.createElement.bind(document);
   document.createElement = function(tagName, options) {
-    const el = origCreateElement(tagName, options);
-    const tag = tagName.toLowerCase();
+    var el = origCreateElement(tagName, options);
+    var tag = (tagName || '').toLowerCase();
     
     if (tag === 'script') {
-      const origSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src') ||
-                          Object.getOwnPropertyDescriptor(el.__proto__, 'src');
-      if (origSrcDesc && origSrcDesc.set) {
+      var origDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+      if (origDesc && origDesc.set) {
         Object.defineProperty(el, 'src', {
-          get: function() { return origSrcDesc.get.call(this); },
+          get: function() { return origDesc.get.call(this); },
           set: function(val) {
-            const rewritten = directUrl(val);
-            if (rewritten !== val) dbg('SCRIPT rewrite: ' + val + ' → ' + rewritten);
-            return origSrcDesc.set.call(this, rewritten);
+            var rewritten = proxyUrl(val);
+            if (rewritten !== val) dbg('SCRIPT proxy: ' + val.substring(0, 60) + ' → ' + rewritten.substring(0, 60));
+            return origDesc.set.call(this, rewritten);
           },
           configurable: true,
           enumerable: true
@@ -182,14 +192,13 @@ const INTERCEPTOR_SCRIPT = `
     }
     
     if (tag === 'link') {
-      const origHrefDesc = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href') ||
-                           Object.getOwnPropertyDescriptor(el.__proto__, 'href');
+      var origHrefDesc = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href');
       if (origHrefDesc && origHrefDesc.set) {
         Object.defineProperty(el, 'href', {
           get: function() { return origHrefDesc.get.call(this); },
           set: function(val) {
-            const rewritten = directUrl(val);
-            if (rewritten !== val) dbg('LINK rewrite: ' + val + ' → ' + rewritten);
+            var rewritten = proxyUrl(val);
+            if (rewritten !== val) dbg('LINK proxy: ' + val.substring(0, 60) + ' → ' + rewritten.substring(0, 60));
             return origHrefDesc.set.call(this, rewritten);
           },
           configurable: true,
@@ -201,8 +210,45 @@ const INTERCEPTOR_SCRIPT = `
     return el;
   };
 
-  // ─── 4. Timeout ───
-  setTimeout(() => {
+  // ─── 4. Intercept WebAssembly.instantiateStreaming to proxy WASM ───
+  // WASM files must also go through our proxy for same-origin
+  if (typeof WebAssembly !== 'undefined') {
+    var origInstantiateStreaming = WebAssembly.instantiateStreaming;
+    if (origInstantiateStreaming) {
+      WebAssembly.instantiateStreaming = function(source, importObject) {
+        dbg('WASM instantiateStreaming intercepted');
+        // If source is a Response from a fetch, we need to re-fetch through proxy
+        if (source && typeof source.then === 'function') {
+          // It's a Promise<Response> (from fetch)
+          return source.then(function(response) {
+            var wasmUrl = response.url || '';
+            dbg('WASM URL: ' + wasmUrl);
+            // Re-fetch through proxy if needed
+            var proxiedWasm = proxyUrl(wasmUrl);
+            if (proxiedWasm !== wasmUrl) {
+              dbg('WASM re-fetching through proxy: ' + proxiedWasm);
+              return originalFetch(proxiedWasm).then(function(proxiedResponse) {
+                return origInstantiateStreaming.call(WebAssembly, proxiedResponse, importObject);
+              });
+            }
+            return origInstantiateStreaming.call(WebAssembly, response, importObject);
+          });
+        }
+        return origInstantiateStreaming.call(WebAssembly, source, importObject);
+      };
+    }
+    
+    var origInstantiate = WebAssembly.instantiate;
+    if (origInstantiate) {
+      WebAssembly.instantiate = function(source, importObject) {
+        dbg('WASM instantiate called');
+        return origInstantiate.call(WebAssembly, source, importObject);
+      };
+    }
+  }
+
+  // ─── 5. Timeout ───
+  setTimeout(function() {
     if (!resolved) {
       dbg('TIMEOUT - no stream found in 25s');
       window.parent.postMessage({ type: 'VIDLINK_TIMEOUT' }, '*');
@@ -228,7 +274,6 @@ export async function GET(req: Request) {
   // Build the VidLink embed URL
   let embedUrl: string;
   if (type === 'tv') {
-    // Default to Season 1 Episode 1 if not specified
     const s = season || '1';
     const e = episode || '1';
     embedUrl = `https://vidlink.pro/tv/${tmdbId}/${s}/${e}`;
@@ -242,7 +287,7 @@ export async function GET(req: Request) {
     const res = await fetch(embedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://vidlink.pro/',
         'Sec-Fetch-Dest': 'document',
@@ -261,17 +306,22 @@ export async function GET(req: Request) {
 
     let html = await res.text();
 
-    // Rewrite static resource URLs in HTML to absolute vidlink.pro URLs.
-    // Script/CSS/img tags are CORS-exempt, so direct loading works fine.
-    // This handles: src="/path" → src="https://vidlink.pro/path"
-    // But NOT: src="//..." (protocol-relative, already absolute)
-    html = html.replace(/src="\/(?!\/)/g, 'src="https://vidlink.pro/');
-    html = html.replace(/href="\/(?!\/)/g, 'href="https://vidlink.pro/');
-    html = html.replace(/src='\/(?!\/)/g, "src='https://vidlink.pro/");
-    html = html.replace(/href='\/(?!\/)/g, "href='https://vidlink.pro/");
+    // ═══ KEY FIX ═══
+    // Route ALL static resources through our same-origin proxy
+    // instead of direct to vidlink.pro (which triggers tracking prevention).
+    // 
+    // BEFORE (broken): src="/path" → src="https://vidlink.pro/path"  (third-party → blocked)
+    // AFTER  (fixed):  src="/path" → src="/api/vidlink/proxy/path"   (same-origin → allowed)
+    html = html.replace(/src="\/(?!\/|api\/)/g, 'src="/api/vidlink/proxy/');
+    html = html.replace(/href="\/(?!\/|api\/)/g, 'href="/api/vidlink/proxy/');
+    html = html.replace(/src='\/(?!\/|api\/)/g, "src='/api/vidlink/proxy/");
+    html = html.replace(/href='\/(?!\/|api\/)/g, "href='/api/vidlink/proxy/");
+    
+    // Also rewrite any absolute vidlink.pro URLs in the HTML
+    html = html.replace(/https:\/\/vidlink\.pro\//g, '/api/vidlink/proxy/');
+    html = html.replace(/http:\/\/vidlink\.pro\//g, '/api/vidlink/proxy/');
 
     // Inject interceptor script as the VERY FIRST thing in <head>
-    // This hooks fetch/XHR/createElement BEFORE any VidLink scripts run
     if (html.includes('<head>')) {
       html = html.replace('<head>', '<head>' + INTERCEPTOR_SCRIPT);
     } else if (html.includes('<HEAD>')) {
@@ -280,7 +330,7 @@ export async function GET(req: Request) {
       html = INTERCEPTOR_SCRIPT + html;
     }
 
-    console.log(`[VidLink-Proxy] ✅ Proxied page (${html.length} bytes), interceptor injected`);
+    console.log(`[VidLink-Proxy] ✅ Proxied page (${html.length} bytes), all resources routed through same-origin proxy`);
 
     return new NextResponse(html, {
       status: 200,

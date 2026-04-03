@@ -40,6 +40,8 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const [isLoading, setIsLoading] = useState(true);
   const [resolveStatus, setResolveStatus] = useState('Connecting...');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [resolverKey, setResolverKey] = useState(0);
+  const consecutiveErrorsRef = useRef(0);
 
   // ─── Content State ───
   const [currentEpisode, setCurrentEpisode] = useState<Episode | undefined>(initialEpisode);
@@ -105,11 +107,11 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     loadEpisodes();
   }, [content.id, content.type]);
 
-  // ─── Stream Resolution ───
   const handleStreamResolved = useCallback((newStream: VidLinkStream) => {
     console.log(`[VideoPlayer] ✅ Stream resolved: ${newStream.url.substring(0, 100)}...`);
     setStream(newStream);
     setResolveStatus('Stream ready');
+    consecutiveErrorsRef.current = 0; // Reset error counter on success
     // Auto-select first English subtitle if available
     const engSub = newStream.captions.find(c => 
       c.language.toLowerCase().includes('english')
@@ -187,7 +189,20 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
+              consecutiveErrorsRef.current += 1;
+              console.warn('[VideoPlayer] Fatal network error. Consecutive:', consecutiveErrorsRef.current);
+              
+              if (consecutiveErrorsRef.current >= 3) {
+                console.warn('[VideoPlayer] Stream URL likely expired. Requesting fresh token...');
+                hls.destroy();
+                setStream(null);
+                setResolveStatus('Token expired. Refreshing secure stream...');
+                setIsLoading(true);
+                setResolverKey(k => k + 1); // Trigger full proxy re-fetch for new token
+              } else {
+                console.warn('[VideoPlayer] Retrying network connection...');
+                hls.startLoad();
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               hls.recoverMediaError();
@@ -531,6 +546,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         type={content.type === 'tv-show' ? 'tv' : 'movie'}
         season={currentEpisode?.seasonNumber || 1}
         episode={currentEpisode?.episodeNumber}
+        resolverKey={resolverKey}
         enabled={true}
         onStreamResolved={handleStreamResolved}
         onError={handleResolverError}

@@ -11,6 +11,7 @@ interface VidLinkResolverProps {
   type: 'movie' | 'tv';
   season?: number;
   episode?: number;
+  resolverKey?: number;
   onStreamResolved: (stream: VidLinkStream) => void;
   onError: (error: string) => void;
   enabled: boolean;
@@ -35,7 +36,8 @@ export function VidLinkResolver({
   tmdbId, 
   type, 
   season, 
-  episode, 
+  episode,
+  resolverKey = 0, 
   onStreamResolved, 
   onError,
   enabled 
@@ -50,10 +52,11 @@ export function VidLinkResolver({
     const params = new URLSearchParams({ tmdbId, type });
     if (type === 'tv' && season) params.set('season', String(season));
     if (type === 'tv' && episode) params.set('episode', String(episode));
+    params.set('_k', String(resolverKey)); // Ensure fresh URL load
     return `/api/vidlink/resolve?${params.toString()}`;
   })();
 
-  // Reset when content changes
+  // Reset when content or key changes
   useEffect(() => {
     setHasResolved(false);
     resolvedRef.current = false;
@@ -61,7 +64,7 @@ export function VidLinkResolver({
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-  }, [tmdbId, type, season, episode]);
+  }, [tmdbId, type, season, episode, resolverKey]);
 
   // Listen for postMessage from the proxied iframe
   useEffect(() => {
