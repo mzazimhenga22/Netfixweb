@@ -49,6 +49,13 @@ export async function GET(req: NextRequest) {
     // Do NOT decode the path here, CDN expects exactly file2%2F intact
     const rawUpstreamUrl = targetUrl.split('?')[0];
     const urlObj = new URL(rawUpstreamUrl);
+
+    // Security: Prevent open proxy abuse
+    // Check BEFORE host swap — the original URL always contains a known domain (e.g. vodvidl.site)
+    // The host param rotates edge hostnames (nightbreeze17, thunderleaf12, etc.) which are unpredictable
+    if (!ALLOWED_HOSTS.some(h => rawUpstreamUrl.includes(h))) {
+      return new NextResponse('Forbidden proxy target', { status: 403 });
+    }
     
     if (hostParam) {
       try {
@@ -57,11 +64,6 @@ export async function GET(req: NextRequest) {
       } catch {}
     }
     const upstreamUrl = urlObj.toString();
-
-    // Security: Prevent open proxy abuse
-    if (!ALLOWED_HOSTS.some(h => upstreamUrl.includes(h))) {
-      return new NextResponse('Forbidden proxy target', { status: 403 });
-    }
 
     let referer = 'https://vidlink.pro/';
     let origin = 'https://vidlink.pro';
