@@ -44,7 +44,6 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const [useEmbedFallback, setUseEmbedFallback] = useState(false);
   const consecutiveErrorsRef = useRef(0);
   const resolverTimeoutRetriesRef = useRef(0);
-  const usedDirectFallbackRef = useRef(false);
 
   // ─── Content State ───
   const [currentEpisode, setCurrentEpisode] = useState<Episode | undefined>(initialEpisode);
@@ -116,7 +115,6 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     setResolveStatus('Stream ready');
     consecutiveErrorsRef.current = 0; // Reset error counter on success
     resolverTimeoutRetriesRef.current = 0;
-    usedDirectFallbackRef.current = false;
     setUseEmbedFallback(false);
     // Auto-select first English subtitle if available
     const engSub = newStream.captions.find(c => 
@@ -209,31 +207,16 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              if (!usedDirectFallbackRef.current && stream.directUrl && stream.url.startsWith('/api/vidlink/hls')) {
-                usedDirectFallbackRef.current = true;
-                setResolveStatus('Proxy blocked. Trying direct stream...');
-                setIsLoading(true);
-                setStream((prev) => (prev ? { ...prev, url: prev.directUrl || prev.url } : prev));
-                break;
-              }
               consecutiveErrorsRef.current += 1;
               console.warn('[VideoPlayer] Fatal network error. Consecutive:', consecutiveErrorsRef.current);
               
               if (consecutiveErrorsRef.current >= 3) {
-                if (usedDirectFallbackRef.current) {
-                  console.warn('[VideoPlayer] Direct stream also failed. Switching to embed fallback.');
-                  hls.destroy();
-                  setUseEmbedFallback(true);
-                  setResolveStatus('Using direct embed player...');
-                  setIsLoading(false);
-                } else {
-                  console.warn('[VideoPlayer] Stream URL likely expired. Requesting fresh token...');
-                  hls.destroy();
-                  setStream(null);
-                  setResolveStatus('Token expired. Refreshing secure stream...');
-                  setIsLoading(true);
-                  setResolverKey(k => k + 1); // Trigger full proxy re-fetch for new token
-                }
+                console.warn('[VideoPlayer] Stream URL likely expired. Requesting fresh token...');
+                hls.destroy();
+                setStream(null);
+                setResolveStatus('Token expired. Refreshing secure stream...');
+                setIsLoading(true);
+                setResolverKey(k => k + 1); // Trigger full proxy re-fetch for new token
               } else {
                 console.warn('[VideoPlayer] Retrying network connection...');
                 hls.startLoad();

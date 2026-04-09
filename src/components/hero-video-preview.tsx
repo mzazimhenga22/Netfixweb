@@ -48,7 +48,6 @@ export function HeroVideoPreview({
   const hlsRef = useRef<Hls | null>(null);
   const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const timeoutRetriesRef = useRef(0);
-  const usedDirectFallbackRef = useRef(false);
 
   // Delay starting the resolver to not block the page
   useEffect(() => {
@@ -59,7 +58,6 @@ export function HeroVideoPreview({
   const handleStreamResolved = useCallback((newStream: VidLinkStream) => {
     console.log('[HeroPreview] ✅ Stream resolved for hero clip');
     timeoutRetriesRef.current = 0;
-    usedDirectFallbackRef.current = false;
     setStream(newStream);
   }, []);
 
@@ -140,16 +138,6 @@ export function HeroVideoPreview({
 
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
-          if (
-            data.type === Hls.ErrorTypes.NETWORK_ERROR &&
-            !usedDirectFallbackRef.current &&
-            stream.directUrl &&
-            stream.url.startsWith('/api/vidlink/hls')
-          ) {
-            usedDirectFallbackRef.current = true;
-            setStream((prev) => (prev ? { ...prev, url: prev.directUrl || prev.url } : prev));
-            return;
-          }
           console.warn('[HeroPreview] HLS fatal error, destroying');
           hls.destroy();
         }
