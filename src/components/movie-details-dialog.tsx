@@ -111,6 +111,7 @@ export function MovieDetailsDialog({ content: initialContent, open, onOpenChange
                 type={content.type === 'tv-show' ? 'tv' : 'movie'}
                 delay={500}
                 clipDuration={60}
+                isMuted={true}
               />
 
               <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/10 to-transparent pointer-events-none" style={{ zIndex: 3 }} />

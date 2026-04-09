@@ -321,6 +321,17 @@ export async function GET(req: Request) {
     html = html.replace(/https:\/\/vidlink\.pro\//g, '/api/vidlink/proxy/');
     html = html.replace(/http:\/\/vidlink\.pro\//g, '/api/vidlink/proxy/');
 
+    // If VidLink emits inline scripts that start with `import`, ensure they run as modules.
+    html = html.replace(
+      /<script([^>]*)>(\s*)import(\s+)/gi,
+      (_match, attrs, wsBeforeImport, wsAfterImport) => {
+        if (/\btype\s*=\s*["']module["']/i.test(attrs)) {
+          return `<script${attrs}>${wsBeforeImport}import${wsAfterImport}`;
+        }
+        return `<script type="module"${attrs}>${wsBeforeImport}import${wsAfterImport}`;
+      }
+    );
+
     // Inject interceptor script as the VERY FIRST thing in <head>
     if (html.includes('<head>')) {
       html = html.replace('<head>', '<head>' + INTERCEPTOR_SCRIPT);
