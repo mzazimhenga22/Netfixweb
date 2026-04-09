@@ -42,7 +42,6 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resolverKey, setResolverKey] = useState(0);
   const [useEmbedFallback, setUseEmbedFallback] = useState(false);
-  const [forceEmbedMode, setForceEmbedMode] = useState(false);
   const consecutiveErrorsRef = useRef(0);
   const resolverTimeoutRetriesRef = useRef(0);
   const usedDirectFallbackRef = useRef(false);
@@ -145,15 +144,6 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     resolverTimeoutRetriesRef.current = 0;
   }, [content.id, currentEpisode?.seasonNumber, currentEpisode?.episodeNumber]);
 
-  useEffect(() => {
-    const host = window.location.hostname.toLowerCase();
-    if (host.endsWith('netlify.app')) {
-      setForceEmbedMode(true);
-      setUseEmbedFallback(true);
-      setIsLoading(false);
-      setResolveStatus('Using direct embed player...');
-    }
-  }, []);
 
   // ─── HLS.js Initialization ───
   useEffect(() => {
@@ -606,7 +596,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       </div>
 
       {/* VidLink Resolver */}
-      {!useEmbedFallback && !forceEmbedMode && (
+      {!useEmbedFallback && (
         <VidLinkResolver 
           tmdbId={content.id}
           type={content.type === 'tv-show' ? 'tv' : 'movie'}

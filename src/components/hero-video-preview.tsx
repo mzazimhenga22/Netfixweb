@@ -38,7 +38,6 @@ export function HeroVideoPreview({
   isMuted,
   onReady
 }: HeroVideoPreviewProps) {
-  const [disableResolver, setDisableResolver] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [stream, setStream] = useState<VidLinkStream | null>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
@@ -53,11 +52,6 @@ export function HeroVideoPreview({
 
   // Delay starting the resolver to not block the page
   useEffect(() => {
-    const host = window.location.hostname.toLowerCase();
-    if (host.endsWith('netlify.app')) {
-      setDisableResolver(true);
-      return;
-    }
     const timer = setTimeout(() => setEnabled(true), delay);
     return () => clearTimeout(timer);
   }, [delay]);
@@ -225,7 +219,7 @@ export function HeroVideoPreview({
   return (
     <>
       {/* Hidden resolver — only active until stream is captured */}
-      {enabled && !stream && !disableResolver && (
+      {enabled && !stream && (
         <VidLinkResolver
           tmdbId={tmdbId}
           type={type}
