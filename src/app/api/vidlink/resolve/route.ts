@@ -250,10 +250,10 @@ const INTERCEPTOR_SCRIPT = `
   // ─── 5. Timeout ───
   setTimeout(function() {
     if (!resolved) {
-      dbg('TIMEOUT - no stream found in 25s');
+      dbg('TIMEOUT - no stream found in 45s');
       window.parent.postMessage({ type: 'VIDLINK_TIMEOUT' }, '*');
     }
-  }, 25000);
+  }, 45000);
 
   dbg('All hooks installed successfully');
 })();

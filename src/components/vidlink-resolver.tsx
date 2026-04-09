@@ -42,6 +42,7 @@ export function VidLinkResolver({
   onError,
   enabled 
 }: VidLinkResolverProps) {
+  const RESOLVE_TIMEOUT_MS = 45000;
   const [hasResolved, setHasResolved] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -91,10 +92,16 @@ export function VidLinkResolver({
           onStreamResolved(stream);
         } else {
           console.error('[VidLink] ❌ Failed to parse stream response');
+          resolvedRef.current = true;
+          setHasResolved(true);
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
           onError('Failed to parse stream data');
         }
       } else if (message.type === 'VIDLINK_TIMEOUT') {
         console.warn('[VidLink] ⏰ Resolution timed out');
+        resolvedRef.current = true;
+        setHasResolved(true);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
         onError('Stream resolution timed out');
       } else if (message.type === 'VIDLINK_DEBUG') {
         console.log(`[VidLink] 🔍 Debug: ${message.data}`);
@@ -106,10 +113,10 @@ export function VidLinkResolver({
     // Set our own client-side timeout as safety net
     timeoutRef.current = setTimeout(() => {
       if (!resolvedRef.current) {
-        console.warn('[VidLink] ⏰ Client-side timeout (30s)');
+        console.warn('[VidLink] ⏰ Client-side timeout (45s)');
         onError('Stream resolution timed out');
       }
-    }, 30000);
+    }, RESOLVE_TIMEOUT_MS);
 
     return () => {
       window.removeEventListener('message', handleMessage);
@@ -118,7 +125,7 @@ export function VidLinkResolver({
         timeoutRef.current = null;
       }
     };
-  }, [enabled, tmdbId, type, season, episode, hasResolved, onStreamResolved, onError]);
+  }, [enabled, tmdbId, type, season, episode, hasResolved, onStreamResolved, onError, RESOLVE_TIMEOUT_MS]);
 
   if (!enabled || !tmdbId || hasResolved) return null;
 

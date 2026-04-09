@@ -19,6 +19,7 @@ export interface VidLinkSkipMarker {
 
 export interface VidLinkStream {
   url: string;           // Direct HLS .m3u8 URL
+  directUrl?: string;
   headers: Record<string, string>;
   captions: VidLinkCaption[];
   markers?: VidLinkSkipMarker[];
@@ -129,6 +130,7 @@ export function parseVidLinkResponse(data: any): VidLinkStream | null {
 
     return {
       url: playlistUrl,
+      directUrl: rawPlaylistUrl,
       headers: responseHeaders,
       captions,
       markers,

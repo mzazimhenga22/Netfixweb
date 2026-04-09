@@ -11,7 +11,7 @@ import { Content, Episode } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { getEpisodes } from '@/lib/tmdb';
 import { VidLinkResolver } from '@/components/vidlink-resolver';
-import { VidLinkStream, VidLinkCaption, VidLinkSkipMarker } from '@/lib/vidlink';
+import { VidLinkStream, VidLinkCaption, VidLinkSkipMarker, getVidLinkEmbedUrl } from '@/lib/vidlink';
 import { useWatchHistory } from '@/hooks/use-watch-history';
 
 interface VideoPlayerProps {
@@ -41,7 +41,10 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const [resolveStatus, setResolveStatus] = useState('Connecting...');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resolverKey, setResolverKey] = useState(0);
+  const [useEmbedFallback, setUseEmbedFallback] = useState(false);
   const consecutiveErrorsRef = useRef(0);
+  const resolverTimeoutRetriesRef = useRef(0);
+  const usedDirectFallbackRef = useRef(false);
 
   // ─── Content State ───
   const [currentEpisode, setCurrentEpisode] = useState<Episode | undefined>(initialEpisode);
@@ -112,6 +115,9 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     setStream(newStream);
     setResolveStatus('Stream ready');
     consecutiveErrorsRef.current = 0; // Reset error counter on success
+    resolverTimeoutRetriesRef.current = 0;
+    usedDirectFallbackRef.current = false;
+    setUseEmbedFallback(false);
     // Auto-select first English subtitle if available
     const engSub = newStream.captions.find(c => 
       c.language.toLowerCase().includes('english')
@@ -121,13 +127,26 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
 
   const handleResolverError = useCallback((error: string) => {
     console.error('[VideoPlayer] Resolver error:', error);
-    setResolveStatus('Failed to load stream');
+    if (error === 'Stream resolution timed out' && resolverTimeoutRetriesRef.current < 2) {
+      resolverTimeoutRetriesRef.current += 1;
+      setResolveStatus(`Still connecting... retrying (${resolverTimeoutRetriesRef.current}/2)`);
+      setIsLoading(true);
+      setStream(null);
+      setResolverKey(k => k + 1);
+      return;
+    }
+    setResolveStatus('Falling back to direct player...');
+    setUseEmbedFallback(true);
     setIsLoading(false);
   }, []);
 
+  useEffect(() => {
+    resolverTimeoutRetriesRef.current = 0;
+  }, [content.id, currentEpisode?.seasonNumber, currentEpisode?.episodeNumber]);
+
   // ─── HLS.js Initialization ───
   useEffect(() => {
-    if (!stream || !videoRef.current) return;
+    if (!stream || !videoRef.current || useEmbedFallback) return;
     const video = videoRef.current;
 
     if (Hls.isSupported()) {
@@ -189,16 +208,31 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
+              if (!usedDirectFallbackRef.current && stream.directUrl && stream.url.startsWith('/api/vidlink/hls')) {
+                usedDirectFallbackRef.current = true;
+                setResolveStatus('Proxy blocked. Trying direct stream...');
+                setIsLoading(true);
+                setStream((prev) => (prev ? { ...prev, url: prev.directUrl || prev.url } : prev));
+                break;
+              }
               consecutiveErrorsRef.current += 1;
               console.warn('[VideoPlayer] Fatal network error. Consecutive:', consecutiveErrorsRef.current);
               
               if (consecutiveErrorsRef.current >= 3) {
-                console.warn('[VideoPlayer] Stream URL likely expired. Requesting fresh token...');
-                hls.destroy();
-                setStream(null);
-                setResolveStatus('Token expired. Refreshing secure stream...');
-                setIsLoading(true);
-                setResolverKey(k => k + 1); // Trigger full proxy re-fetch for new token
+                if (usedDirectFallbackRef.current) {
+                  console.warn('[VideoPlayer] Direct stream also failed. Switching to embed fallback.');
+                  hls.destroy();
+                  setUseEmbedFallback(true);
+                  setResolveStatus('Using direct embed player...');
+                  setIsLoading(false);
+                } else {
+                  console.warn('[VideoPlayer] Stream URL likely expired. Requesting fresh token...');
+                  hls.destroy();
+                  setStream(null);
+                  setResolveStatus('Token expired. Refreshing secure stream...');
+                  setIsLoading(true);
+                  setResolverKey(k => k + 1); // Trigger full proxy re-fetch for new token
+                }
               } else {
                 console.warn('[VideoPlayer] Retrying network connection...');
                 hls.startLoad();
@@ -223,7 +257,11 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
         hlsRef.current = null;
       }
     };
-  }, [stream]);
+  }, [stream, useEmbedFallback]);
+
+  useEffect(() => {
+    setUseEmbedFallback(false);
+  }, [content.id, currentEpisode?.seasonNumber, currentEpisode?.episodeNumber]);
 
   // ─── Subtitle Parsing & Rendering ───
   useEffect(() => {
@@ -509,6 +547,12 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   const anyPanelOpen = isEpisodesOpen || isAudioSubOpen || isSettingsOpen;
+  const embedFallbackUrl = getVidLinkEmbedUrl(
+    content.id,
+    content.type === 'tv-show' ? 'tv' : 'movie',
+    currentEpisode?.seasonNumber || 1,
+    currentEpisode?.episodeNumber || 1
+  );
 
   // ─── Render ───
   return (
@@ -520,15 +564,25 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     >
       {/* Video Element */}
       <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-black">
-        <video 
-          ref={videoRef}
-          className="w-full h-full object-contain"
-          playsInline
-          autoPlay
-          crossOrigin="anonymous"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-        />
+        {useEmbedFallback ? (
+          <iframe
+            src={embedFallbackUrl}
+            title="vidlink-embed-player"
+            className="w-full h-full border-0"
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+          />
+        ) : (
+          <video 
+            ref={videoRef}
+            className="w-full h-full object-contain"
+            playsInline
+            autoPlay
+            crossOrigin="anonymous"
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+          />
+        )}
         
         {/* Backdrop while resolving */}
         {isLoading && !stream && (
@@ -541,19 +595,21 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       </div>
 
       {/* VidLink Resolver */}
-      <VidLinkResolver 
-        tmdbId={content.id}
-        type={content.type === 'tv-show' ? 'tv' : 'movie'}
-        season={currentEpisode?.seasonNumber || 1}
-        episode={currentEpisode?.episodeNumber}
-        resolverKey={resolverKey}
-        enabled={true}
-        onStreamResolved={handleStreamResolved}
-        onError={handleResolverError}
-      />
+      {!useEmbedFallback && (
+        <VidLinkResolver 
+          tmdbId={content.id}
+          type={content.type === 'tv-show' ? 'tv' : 'movie'}
+          season={currentEpisode?.seasonNumber || 1}
+          episode={currentEpisode?.episodeNumber}
+          resolverKey={resolverKey}
+          enabled={true}
+          onStreamResolved={handleStreamResolved}
+          onError={handleResolverError}
+        />
+      )}
 
       {/* ─── Netflix Subtitle Overlay ─── */}
-      {subtitleText && (
+      {!useEmbedFallback && subtitleText && (
         <div className="absolute bottom-[14%] left-0 right-0 flex justify-center z-[55] pointer-events-none px-8 transition-opacity duration-200">
           <div className="netflix-subtitle px-6 py-2 max-w-[80%]">
             <span 
@@ -565,7 +621,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       )}
 
       {/* ─── Skip Intro Button ─── */}
-      {showSkipIntro && (
+      {!useEmbedFallback && showSkipIntro && (
         <button
           onClick={handleSkipMarker}
           className="absolute bottom-[18%] right-[5%] z-[80] border-2 border-white/60 bg-black/50 hover:bg-white hover:text-black text-white px-8 py-3 text-lg font-bold tracking-wider uppercase transition-all duration-200 backdrop-blur-sm animate-in slide-in-from-right-4"
@@ -575,7 +631,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       )}
 
       {/* ─── Skip Outro / Next Episode Button ─── */}
-      {showSkipOutro && (
+      {!useEmbedFallback && showSkipOutro && (
         <button
           onClick={handleSkipMarker}
           className="absolute bottom-[18%] right-[5%] z-[80] border-2 border-white/60 bg-black/50 hover:bg-white hover:text-black text-white px-8 py-3 text-lg font-bold tracking-wider uppercase transition-all duration-200 backdrop-blur-sm animate-in slide-in-from-right-4"
@@ -625,7 +681,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       {/* ─── Center Play Button (paused state) ─── */}
       <div className={cn(
         "z-10 transition-all duration-300",
-        (!isPlaying && !anyPanelOpen && !isLoading) ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        (!isPlaying && !anyPanelOpen && !isLoading && !useEmbedFallback) ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
       )}>
         <button className="text-white" onClick={() => setIsPlaying(true)}>
           <Play className="w-28 h-28 fill-current drop-shadow-[0_0_40px_rgba(0,0,0,0.9)]" />
@@ -825,7 +881,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       {/* ─── Bottom Controls ─── */}
       <div className={cn(
         "absolute bottom-0 left-0 right-0 px-6 md:px-14 pb-8 md:pb-10 transition-all duration-500 z-50",
-        (showControls && !anyPanelOpen) ? "opacity-100 translate-y-0" : "opacity-0 translate-y-20 pointer-events-none"
+        (showControls && !anyPanelOpen && !useEmbedFallback) ? "opacity-100 translate-y-0" : "opacity-0 translate-y-20 pointer-events-none"
       )}>
         
         {/* ─── Progress Bar ─── */}

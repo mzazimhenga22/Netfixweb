@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 const PROXY_BASE = '/api/vidlink/hls?url=';
 const ALLOWED_HOSTS = ['vidlink', 'videostr', 'vodvidl', 'thunderleaf', 'aurora'];
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response> {
   try {
@@ -46,8 +47,11 @@ export async function GET(req: NextRequest) {
     const headersParam = parsedUrl.searchParams.get('headers');
     const hostParam = parsedUrl.searchParams.get('host');
 
-    // Do NOT decode the path here, CDN expects exactly file2%2F intact
-    const rawUpstreamUrl = targetUrl.split('?')[0];
+    // Keep real query params (token/signature) but strip helper params used by our proxy only.
+    const rawUrlObj = new URL(targetUrl);
+    rawUrlObj.searchParams.delete('headers');
+    rawUrlObj.searchParams.delete('host');
+    const rawUpstreamUrl = rawUrlObj.toString();
     const urlObj = new URL(rawUpstreamUrl);
 
     // Security: Prevent open proxy abuse
@@ -64,6 +68,7 @@ export async function GET(req: NextRequest) {
       } catch {}
     }
     const upstreamUrl = urlObj.toString();
+    const fallbackUpstreamUrl = rawUpstreamUrl;
 
     let referer = 'https://vidlink.pro/';
     let origin = 'https://vidlink.pro';
@@ -81,26 +86,72 @@ export async function GET(req: NextRequest) {
       } catch {}
     }
 
-    const fetchHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': referer,
-      'Origin': origin,
-      'Connection': 'keep-alive',
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'cross-site',
-    };
+    const headerVariants: Record<string, string>[] = [
+      {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': referer,
+        'Origin': origin,
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+      },
+      {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': referer,
+      },
+      {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Referer': 'https://vidlink.pro/',
+        'Origin': 'https://vidlink.pro',
+      },
+      {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+      },
+    ];
 
     console.log('[HLS] Edge FINAL URL:', upstreamUrl);
 
-    // Edge fetch natively uses Web Fetch, avoiding the %2F undici bug automatically.
-    // Enhanced with retry limits and a 10s AbortController timeout
-    const res = await fetchWithRetry(upstreamUrl, {
-      headers: fetchHeaders,
-      redirect: 'manual',
-    });
+    const candidateUrls =
+      hostParam && upstreamUrl !== fallbackUpstreamUrl
+        ? [upstreamUrl, fallbackUpstreamUrl]
+        : [upstreamUrl];
+
+    let res: Response | null = null;
+    let resolvedUpstreamUrl = candidateUrls[0];
+    for (const candidateUrl of candidateUrls) {
+      for (const headers of headerVariants) {
+        const candidateRes = await fetchWithRetry(candidateUrl, {
+          headers,
+          redirect: 'manual',
+        });
+
+        if (candidateRes.status < 400) {
+          res = candidateRes;
+          resolvedUpstreamUrl = candidateUrl;
+          break;
+        }
+
+        res = candidateRes;
+        resolvedUpstreamUrl = candidateUrl;
+      }
+
+      if (res && res.status < 400) break;
+
+      if (hostParam && candidateUrl !== fallbackUpstreamUrl) {
+        console.warn(`[HLS-Proxy] Host override failed (${res?.status}), retrying original host`);
+      }
+    }
+
+    if (!res) {
+      return new NextResponse('Upstream error: 502', { status: 502 });
+    }
 
     // Handle CDN level redirects transparently
     if (res.status >= 300 && res.status < 400) {
@@ -112,16 +163,17 @@ export async function GET(req: NextRequest) {
     }
 
     if (res.status >= 400) {
-      console.error(`[HLS-Proxy] ❌ Edge ${res.status} for ${upstreamUrl}`);
+      console.error(`[HLS-Proxy] ❌ Edge ${res.status} for ${resolvedUpstreamUrl}`);
       return new NextResponse(`Upstream error: ${res.status}`, { status: res.status });
     }
 
     const ct = res.headers.get('content-type') || '';
-    const isPlaylist = upstreamUrl.includes('.m3u8') || ct.includes('mpegurl');
+    const isPlaylist = resolvedUpstreamUrl.includes('.m3u8') || ct.includes('mpegurl');
 
     if (isPlaylist) {
       const text = await res.text();
-      const rewritten = rewritePlaylist(text, upstreamUrl, headersParam, hostParam);
+      const usedHostOverride = resolvedUpstreamUrl !== fallbackUpstreamUrl;
+      const rewritten = rewritePlaylist(text, resolvedUpstreamUrl, headersParam, usedHostOverride ? hostParam : null);
 
       return new NextResponse(rewritten, {
         headers: {

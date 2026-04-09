@@ -42,10 +42,13 @@ export function HeroVideoPreview({
   const [stream, setStream] = useState<VidLinkStream | null>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  const [resolverKey, setResolverKey] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRetriesRef = useRef(0);
+  const usedDirectFallbackRef = useRef(false);
 
   // Delay starting the resolver to not block the page
   useEffect(() => {
@@ -55,13 +58,26 @@ export function HeroVideoPreview({
 
   const handleStreamResolved = useCallback((newStream: VidLinkStream) => {
     console.log('[HeroPreview] ✅ Stream resolved for hero clip');
+    timeoutRetriesRef.current = 0;
+    usedDirectFallbackRef.current = false;
     setStream(newStream);
   }, []);
 
   const handleError = useCallback((error: string) => {
+    if (error === 'Stream resolution timed out' && timeoutRetriesRef.current < 2) {
+      timeoutRetriesRef.current += 1;
+      setResolverKey((k) => k + 1);
+      return;
+    }
     console.warn('[HeroPreview] Failed to resolve hero clip:', error);
     // Silent fail — hero just shows the static image
   }, []);
+
+  useEffect(() => {
+    timeoutRetriesRef.current = 0;
+    setResolverKey(0);
+    setStream(null);
+  }, [tmdbId, type]);
 
   // Initialize HLS.js with LOWEST quality for minimal resource usage
   useEffect(() => {
@@ -124,6 +140,16 @@ export function HeroVideoPreview({
 
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
+          if (
+            data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+            !usedDirectFallbackRef.current &&
+            stream.directUrl &&
+            stream.url.startsWith('/api/vidlink/hls')
+          ) {
+            usedDirectFallbackRef.current = true;
+            setStream((prev) => (prev ? { ...prev, url: prev.directUrl || prev.url } : prev));
+            return;
+          }
           console.warn('[HeroPreview] HLS fatal error, destroying');
           hls.destroy();
         }
@@ -197,6 +223,7 @@ export function HeroVideoPreview({
         <VidLinkResolver
           tmdbId={tmdbId}
           type={type}
+          resolverKey={resolverKey}
           enabled={true}
           onStreamResolved={handleStreamResolved}
           onError={handleError}
