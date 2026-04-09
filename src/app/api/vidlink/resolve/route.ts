@@ -332,6 +332,15 @@ export async function GET(req: Request) {
       }
     );
 
+    // Some VidLink builds bootstrap with /script.js that contains ESM `import` statements.
+    // On some platforms this script is emitted without type="module", causing:
+    // "Cannot use import statement outside a module".
+    // Force module type only for this known bootstrap script.
+    html = html.replace(
+      /<script(?![^>]*\btype\s*=\s*["']module["'])([^>]*\bsrc\s*=\s*["'](?:\/api\/vidlink\/proxy\/)?script\.js(?:\?[^"']*)?["'][^>]*)>/gi,
+      '<script type="module"$1>'
+    );
+
     // Inject interceptor script as the VERY FIRST thing in <head>
     if (html.includes('<head>')) {
       html = html.replace('<head>', '<head>' + INTERCEPTOR_SCRIPT);
