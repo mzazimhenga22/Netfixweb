@@ -44,6 +44,9 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   const [useEmbedFallback, setUseEmbedFallback] = useState(false);
   const consecutiveErrorsRef = useRef(0);
   const resolverTimeoutRetriesRef = useRef(0);
+  const manualQualityRef = useRef(false);
+  const stallCountRef = useRef(0);
+  const lastStallAtRef = useRef(0);
 
   // ─── Content State ───
   const [currentEpisode, setCurrentEpisode] = useState<Episode | undefined>(initialEpisode);
@@ -113,8 +116,10 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
     console.log(`[VideoPlayer] ✅ Stream resolved: ${newStream.url.substring(0, 100)}...`);
     setStream(newStream);
     setResolveStatus('Stream ready');
+    setCurrentQuality(-1);
     consecutiveErrorsRef.current = 0; // Reset error counter on success
     resolverTimeoutRetriesRef.current = 0;
+    manualQualityRef.current = false;
     setUseEmbedFallback(false);
     // Auto-select first English subtitle if available
     const engSub = newStream.captions.find(c => 
@@ -152,12 +157,16 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       if (hlsRef.current) hlsRef.current.destroy();
 
       const hls = new Hls({
-        startLevel: -1,
+        startLevel: 0, // Faster startup on slower networks, then ABR scales up
         capLevelToPlayerSize: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 40,
         maxBufferHole: 0.5,
         lowLatencyMode: false,
+        abrEwmaDefaultEstimate: 800000,
+        abrBandWidthFactor: 0.75,
+        abrBandWidthUpFactor: 0.5,
+        testBandwidth: true,
         // Start playing as soon as we have a tiny bit buffered
         highBufferWatchdogPeriod: 2,
         fragLoadingTimeOut: 20000,
@@ -200,6 +209,9 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+        if (!manualQualityRef.current) {
+          return;
+        }
         setCurrentQuality(data.level);
       });
 
@@ -335,8 +347,29 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
       }
     };
     const onDurationChange = () => setDuration(video.duration);
-    const onWaiting = () => setIsLoading(true);
-    const onPlaying = () => setIsLoading(false);
+    const onWaiting = () => {
+      setIsLoading(true);
+      const now = Date.now();
+      if (now - lastStallAtRef.current < 8000) {
+        stallCountRef.current += 1;
+      } else {
+        stallCountRef.current = 1;
+      }
+      lastStallAtRef.current = now;
+
+      if (!manualQualityRef.current && stallCountRef.current >= 2 && hlsRef.current) {
+        const hls = hlsRef.current;
+        const currentAutoLevel = hls.nextAutoLevel >= 0 ? hls.nextAutoLevel : hls.currentLevel;
+        if (currentAutoLevel > 0) {
+          hls.nextAutoLevel = currentAutoLevel - 1;
+          setResolveStatus('Optimizing quality for smoother playback...');
+        }
+      }
+    };
+    const onPlaying = () => {
+      setIsLoading(false);
+      stallCountRef.current = 0;
+    };
     const onProgress = () => {
       if (video.buffered.length > 0) {
         setBuffered(video.buffered.end(video.buffered.length - 1));
@@ -379,6 +412,7 @@ export function VideoPlayer({ content, episode: initialEpisode, onClose }: Video
   // ─── Quality ───
   const setQuality = useCallback((levelIndex: number) => {
     if (hlsRef.current) {
+      manualQualityRef.current = levelIndex !== -1;
       hlsRef.current.currentLevel = levelIndex; // -1 = auto
       setCurrentQuality(levelIndex);
     }
